@@ -4,11 +4,13 @@ from functools    import partial
 from sqlite3      import Error
 import os
 import pathlib
+import platform
 import sqlite3
 import sys
 import traceback
 
 NEW_APP_DIR = 'PDF2CBZ'
+INI_FILE = 'settings.ini'
 
 class WorkerSignals(QObject):
     finished = pyqtSignal()
@@ -64,31 +66,34 @@ class SQLite:
                 part.pop(-1)
                 if part:
                     path = '/'.join(part)
-                    pathlib.Path(path).mkdir(parents=True)
+                    if not os.path.exists(path):
+                        pathlib.Path(path).mkdir(parents=True)
 
-        os.chdir(os.path.realpath(__file__)[0:os.path.realpath(__file__).rfind('/')])
-
-        ini_file = 'settings.ini'
+        if platform.system() == "Windows":
+            os.chdir(os.path.realpath(__file__)[0:os.path.realpath(__file__).rfind('\\')])
+        else:
+            os.chdir(os.path.realpath(__file__)[0:os.path.realpath(__file__).rfind('/')])
 
         databases = dict(
             local_database=dict(
                 connection=self.sqliteconnection, cursor=self.sqlitecursor),
         )
 
-        if not os.path.exists(ini_file):
-            with open(ini_file, 'w') as f:
+        if not os.path.exists(INI_FILE):
+            with open(INI_FILE, 'w') as f:
                 devpath = '/home/plutonergy/Documents/'
                 if os.path.exists(devpath):
                     devpath = f'{devpath}{NEW_APP_DIR}/'
-                    if not os.path.exists(devpath):
-                        pathlib.Path(devpath).mkdir(parents=True)
                 else:
                     devpath = ""
 
-                f.write(f'local_database = "{devpath}{NEW_APP_DIR.lower()}_database.sqlite"\n')
+                sqlite_file = f'{devpath}/{NEW_APP_DIR.lower()}_database.sqlite'
+                sqlite_file = os.path.abspath(os.path.expanduser(sqlite_file))
+
+                f.write(f'local_database = "{sqlite_file}"\n')
                 f.close()
 
-        with open(ini_file, 'r') as f:
+        with open(INI_FILE, 'r') as f:
             database_location = list(f)
 
             for row in database_location:
@@ -168,14 +173,14 @@ class SQLite:
         """
         def write_to_database(self, query, values):
             with self.sqliteconnection:
-                if not values:
+                if values == None:
                     self.sqlitecursor.execute(query)
-                elif type(values) == str:
-                    self.sqlitecursor.execute(query, (values,))
                 elif type(values) == list:
                     self.sqlitecursor.execute(query, tuple(values))
                 elif type(values) == tuple:
                     self.sqlitecursor.execute(query, values)
+                else:
+                    self.sqlitecursor.execute(query, (values,))
 
         if query:
             thread = Worker(partial(write_to_database, self, query, values))
@@ -202,7 +207,7 @@ class SQLite:
         :param values: list, tuple, string or none
         """
         if type(values) == list and type(values[0]) != tuple:
-            self.write_one_master(query, tuple(values))
+            self.write_one_master(query, values)
         elif type(values) == list:
             self.write_many_master(query, values)
         else:
@@ -304,6 +309,10 @@ class DB:
         geometry = sqlite.db_sqlite('settings', 'geometry')
         source_path = sqlite.db_sqlite('settings', 'source_path')
         destination_path = sqlite.db_sqlite('settings', 'destination_path')
+        webp_slider = sqlite.db_sqlite('settings', 'webp_slider', 'integer')
+        del_source = sqlite.db_sqlite('settings', 'del_source', 'integer')
+        continous = sqlite.db_sqlite('settings', 'continous', 'integer')
+        poppler_path = sqlite.db_sqlite('settings', 'poppler_path')
 
     class files:
         local_path = sqlite.db_sqlite('files', 'local_path')

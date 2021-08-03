@@ -21,6 +21,23 @@ class GOD(QtWidgets.QFrame):
         if show:
             self.show()
 
+class DevLabel(QtWidgets.QLabel):
+    def __init__(self, place, main):
+        super().__init__(place)
+        self.main = main
+        self.setGeometry(0,0,place.width(),place.height())
+        self.setStyleSheet('background-color: rgba(0,0,0,0)')
+    def mousePressEvent(self, ev: QtGui.QMouseEvent) -> None:
+        if ev.button() == 1:
+            self.main.dev_mode = False
+            self.main.setStyleSheet('background-color: rgb(20,20,20) ; color: rgb(255,255,255)')
+            self.main.setWindowTitle('Back to normal')
+        elif ev.button() == 2:
+            self.main.dev_mode = True
+            self.main.setStyleSheet('background-color: rgb(80,10,10) ; color: white')
+            self.main.setWindowTitle('DEV MODE!')
+
+
 class VerticalLabel(QtWidgets.QWidget):
     def __init__(self, place, main, text):
         super().__init__(place)
@@ -193,6 +210,8 @@ class PDFWidget(GOD):
             return False
 
         outputpath = to_dir + '/' + filename + '.cbz'
+        outputpath = os.path.abspath(os.path.expanduser(outputpath))
+
         if os.path.exists(outputpath) and os.path.getsize(outputpath) > 0:
             error(self, 'DESTINATION EXISTS', 'background-color: green ; color: white')
             return False
@@ -243,6 +262,9 @@ class PDFWidget(GOD):
             values[DB.files.local_path] = self.data['path']
             sqlite.w(query, values)
 
+            if self.main.delete_source_pdf.isChecked():
+                os.remove(self.data['path'])
+
         if not self.load_next_job() and self.main.continous_convertion.isChecked():
             self.main.draw_more_pdf_files()
             self.load_next_job()
@@ -261,8 +283,10 @@ class PDFWidget(GOD):
                     t.start_thread(self.main.dummy, finished_function=i.process_file)
                     return True
 
-
     def mousePressEvent(self, ev: QtGui.QMouseEvent) -> None:
+        if self.main.dev_mode:
+            return
+
         if ev.button() == 1:
 
             self.status_label.setText('PROCESSING')

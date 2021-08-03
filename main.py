@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-
 from PIL            import Image
-from PyPDF2         import PdfFileReader
-from PyQt5          import QtWidgets
+from PyQt5          import QtCore, QtWidgets
+from PyQt5.QtGui    import QPixmap
 from database_stuff import DB, sqlite
-from pdf2image      import convert_from_path
+from functools      import partial
+from pdf2image      import convert_from_path, pdfinfo_from_path
 from tricks         import tech as t
-from widgets        import PDFWidget
+from widgets        import DevLabel, PDFWidget
 from zipfile        import BadZipFile, ZipFile
-import PyPDF2
 import concurrent.futures
 import math
 import os
+import platform
 import psutil
 import shutil
 import string
 import sys
 import time
 
-FIGURE_HEIGHT = 300
 
+FIGURE_HEIGHT = 300
 
 def pdf_to_jpeg(job):
     """
@@ -27,12 +27,23 @@ def pdf_to_jpeg(job):
     :param job: tuple
     :return: list with paths as strings
     """
+
+    source_file, output_folder, first_page, last_page, output_file, poppler_path = job
+
     image_list = convert_from_path(
-        job[0], output_folder=job[1], first_page=job[2], last_page=job[3], output_file=job[4],
-        jpegopt=dict(quality=100), fmt='jpeg', paths_only=True,
+        source_file,
+        dpi=200,
+        first_page=first_page,
+        last_page=last_page,
+        fmt='jpeg',
+        output_file=output_file,
+        output_folder=output_folder,
+        paths_only=True,
+        jpegopt=dict(quality=100, optimize=True),
+        poppler_path=poppler_path,
     )
     return image_list
-def convert_files_to_jpeg(joblist, inputpath, tmp_jpeg_folder):
+def convert_files_to_jpeg(joblist, inputpath, tmp_jpeg_folder, poppler_path=None):
     """
     :param joblist: dictionary with letters as keys containing list indexes (int)
     :param inputpath: string to pdf file-path
@@ -42,7 +53,7 @@ def convert_files_to_jpeg(joblist, inputpath, tmp_jpeg_folder):
     image_list = []
     threadlist = []
     for letter in joblist:
-        threadlist.append((inputpath, tmp_jpeg_folder, joblist[letter][0], joblist[letter][-1], letter,))
+        threadlist.append((inputpath, tmp_jpeg_folder, joblist[letter][0], joblist[letter][-1], letter, poppler_path,))
 
     with concurrent.futures.ProcessPoolExecutor() as executor:
         for _, rv in zip(joblist, executor.map(pdf_to_jpeg, threadlist)):
@@ -55,12 +66,13 @@ def convert_files_to_jpeg(joblist, inputpath, tmp_jpeg_folder):
 def jpeg_to_webp(job):
     """
     jpeg to webp
-    :param job: tuple -> 0:jpeg_file_path, 1:save_webp_file_path
+    :param job: tuple -> 0:jpeg_file_path, 1:save_webp_file_path, 2:webp_quality
     :return: string -> webp_file_location
     """
-    image = Image.open(job[0])
-    image.save(job[1], 'webp', method=6, quality=70)
-    return job[1]
+    source_path, destination_path, _, webp_quality = job
+    image = Image.open(source_path)
+    image.save(destination_path, 'webp', method=6, quality=webp_quality)
+    return destination_path
 def convert_files_to_webp(joblist):
     """
     :param joblist: list with jpeg_files
@@ -105,10 +117,14 @@ def recompress_fucntion(destination_file, tmp_folder):
 
     zipfile = destination_file[0:-(len('.cbz'))]
 
-    os.sync()
+    if platform.system() != "Windows":
+        os.sync()
+
     shutil.make_archive(zipfile, 'zip', tmp_folder)
     zipfile += '.zip'
-    os.sync()
+
+    if platform.system() != "Windows":
+        os.sync()
 
     if not confirm_new_files(zipfile):
         return False
@@ -124,54 +140,132 @@ def recompress_fucntion(destination_file, tmp_folder):
 
     return True
 
-class main(QtWidgets.QMainWindow):
+class PDF2CBZmain(QtWidgets.QMainWindow):
     def __init__(self):
-        super(main, self).__init__()
-        self.setWindowTitle('STRANGLE THE FUCKING DUCK v0.1 build:666')
+        super(PDF2CBZmain, self).__init__()
+
+        self.setWindowTitle('PDF to WEBP-compressed CBZ v0.2 build:667')
         self.setStyleSheet('background-color: rgb(20,20,20) ; color: rgb(255,255,255)')
-        self.setFixedSize(1920, 1080)
+        self.dev_mode = False
+        self.setFixedSize(1800, 1000)
         self.widgets = dict(main=[], pdf=[], cbz=[])
 
-        self.wt = 5
-        self.ht = 5
+        self.wt = 3
+        self.ht = 3
 
         self.reset_ht_wt()
 
         self.from_dir = QtWidgets.QPlainTextEdit(self, toolTip='SOURCE FOLDER')
         self.from_dir.setStyleSheet('background-color: rgb(30,30,30) ; color: rgb(235,235,235)')
         self.from_dir.setGeometry(self.wt, self.ht, int(self.width() * 0.5), 30)
-        self.from_dir.show()
         self.ht += self.from_dir.height() + 3
         self.from_dir.textChanged.connect(self.from_dir_changed)
 
         self.to_dir = QtWidgets.QPlainTextEdit(self, toolTip='DESTINATION FOLDER')
         self.to_dir.setStyleSheet('background-color: rgb(30,30,30) ; color: rgb(235,235,235)')
         self.to_dir.setGeometry(self.wt, self.ht, int(self.width() * 0.5), 30)
-        self.to_dir.show()
         self.ht += self.to_dir.height() + 3
         self.to_dir.textChanged.connect(self.to_dir_changed)
 
         self.canvas = QtWidgets.QFrame(self)
         self.canvas.setStyleSheet('background-color: rgb(25,25,25)')
         self.canvas.setGeometry(self.wt, self.ht, self.width() - self.wt * 2, self.height() - self.ht - 5)
-        self.canvas.show()
-        self.ht += self.canvas.height() + 3
 
-        self.btn_more = QtWidgets.QPushButton(self, text='MORE')
-        self.btn_more.move(self.from_dir.geometry().right() + 5, 5)
-        self.btn_more.clicked.connect(self.draw_more_pdf_files)
+        self.webp_label = QtWidgets.QLabel(self)
+        self.webp_label.setStyleSheet('background-color: rgb(30,30,30) ; color: rgb(235,235,235) ; font: 14pt')
+        self.webp_label.move(self.from_dir.geometry().right() + 3, self.from_dir.geometry().top())
+        self.webp_label.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
+        self.webp_label.setFixedWidth(200)
+        DevLabel(self.webp_label, self)
+
+        webp_value = t.retrieve_setting(DB.settings.webp_slider)
+        if not webp_value:
+            webp_value = 70
+
+        self.webp_slider = QtWidgets.QSlider(self, minimum=0, maximum=100, value=webp_value)
+        self.webp_slider.setFixedWidth(self.webp_label.width())
+        self.webp_slider.move(self.webp_label.geometry().left(), self.webp_label.geometry().bottom() + 3)
+        self.webp_slider.setOrientation(1)
+        self.webp_slider.valueChanged.connect(self.slider_changed)
+        self.slider_changed()
 
         self.continous_convertion = QtWidgets.QCheckBox(self, text='CONTINOUS')
         self.continous_convertion.setToolTip('Continous conversions, start another once current is completed!')
-        self.continous_convertion.move(self.from_dir.geometry().right() + 5, self.btn_more.geometry().bottom() + 5)
+        self.continous_convertion.move(self.webp_label.geometry().right() + 3, 3)
+        self.continous_convertion.setStyleSheet('background-color: rgb(30,30,30) ; color: rgb(235,235,235)')
+
+        rv = t.retrieve_setting(DB.settings.continous)
+        if rv:
+            self.continous_convertion.setChecked(rv)
+
+        self.continous_convertion.stateChanged.connect(partial(
+            self.save_setting, self.continous_convertion, 'continous'))
+
+        self.delete_source_pdf = QtWidgets.QCheckBox(self, text='DELETE PDF')
+        self.delete_source_pdf.move(self.continous_convertion.geometry().right() + 3, 3)
+        self.delete_source_pdf.setToolTip('When jobs complete, the PDF source will be permanently deleted!')
+        self.delete_source_pdf.setStyleSheet('background-color: rgb(30,30,30) ; color: rgb(235,235,235)')
+
+        rv = t.retrieve_setting(DB.settings.del_source)
+        if rv:
+            self.delete_source_pdf.setChecked(rv)
+
+        self.delete_source_pdf.stateChanged.connect(partial(
+            self.save_setting, self.delete_source_pdf, 'del_source'))
+
+        self.pdf_threads = QtWidgets.QCheckBox(self, text='PDF THREADS', checked=True)
+        self.pdf_threads.setFixedWidth(self.pdf_threads.width() + 10)
+        self.pdf_threads.move(self.delete_source_pdf.geometry().right() + 3, 3)
+        self.pdf_threads.setToolTip('Checked == FASTER')
+        self.pdf_threads.setStyleSheet('background-color: rgb(30,30,30) ; color: rgb(235,235,235)')
+
+        self.wepb_threads = QtWidgets.QCheckBox(self, text='WEBP THREADS', checked=True)
+        self.wepb_threads.setFixedWidth(self.wepb_threads.width() + 20)
+        self.wepb_threads.move(self.pdf_threads.geometry().right() + 3, 3)
+        self.wepb_threads.setToolTip('Checked == FASTER')
+        self.wepb_threads.setStyleSheet('background-color: rgb(30,30,30) ; color: rgb(235,235,235)')
+
+        self.btn_more = QtWidgets.QPushButton(self, text='REFRESH')
+        self.btn_more.move(self.wepb_threads.geometry().right() + 3, 3)
+        self.btn_more.clicked.connect(self.draw_more_pdf_files)
+
+        tt = 'example -> /home/user/poppler-0.68.0/bin\n\nWindows download: http://blog.alivate.com.au/poppler-windows/'
+        self.poppler_path = QtWidgets.QPlainTextEdit(self, toolTip=tt)
+        self.poppler_path.setStyleSheet('background-color: rgb(30,30,30) ; color: rgb(235,235,235)')
+        x = self.webp_slider.geometry().right() + 3
+        y = self.webp_slider.geometry().top()
+        w = self.btn_more.geometry().right() - self.continous_convertion.geometry().left()
+        h = self.webp_label.height()
+        self.poppler_path.setGeometry(x, y, w, h)
+        self.poppler_path.textChanged.connect(self.poppler_path_changed)
+
+        cyd = {
+            'PDF SOURCE FOLDER': self.from_dir,
+            'CBZ DESTINATION FOLDER': self.to_dir,
+            'POPPLER PATH': self.poppler_path,
+        }
+
+        for i,j in cyd.items():
+            label = QtWidgets.QLabel(j, text=i, alignment=QtCore.Qt.AlignRight|QtCore.Qt.AlignVCenter)
+            label.setStyleSheet('background-color: rgba(0,0,0,0) ; color: gray ; font: 10pt')
+            label.setGeometry(0,0,j.width() - 20,j.height())
+            label.lower()
 
         self.deside_figure_size()
+
+        if os.path.exists('background.webp'):
+            bg = QtWidgets.QLabel(self)
+            bg.setGeometry(0,0,self.width(),self.height())
+            pixmap = QPixmap('background.webp').scaled(bg.width(), bg.height())
+            bg.setPixmap(pixmap)
+            bg.lower()
 
         self.show()
 
         setting_plaintext_label = {
             DB.settings.source_path: self.from_dir,
             DB.settings.destination_path: self.to_dir,
+            DB.settings.poppler_path: self.poppler_path,
          }
 
         for key, label in setting_plaintext_label.items():
@@ -179,6 +273,21 @@ class main(QtWidgets.QMainWindow):
             if rv:
                 label.setPlainText(rv)
 
+    def slider_changed(self):
+        self.webp_label.setText('WEBP QUALITY: ' + str(self.webp_slider.value()))
+        self.save_setting(self.webp_slider, 'webp_slider')
+
+    def save_setting(self, widget, setting_var):
+        widget_type = widget.metaObject().className()
+        if widget_type == 'QSlider':
+            value = widget.value()
+        elif widget_type == 'QCheckBox':
+            value = widget.isChecked()
+        else:
+            print('You need to spank your monkey harder!')
+            return
+
+        sqlite.w(f'update settings set {setting_var} = (?) where id is 1', value)
 
     def deside_figure_size(self):
         """
@@ -270,8 +379,13 @@ class main(QtWidgets.QMainWindow):
 
         for i in all_files:
             count = len(rdict)+1
+            i = os.path.abspath(os.path.expanduser(i))
 
-            filename = i.split('/')
+            if platform.system() == "Windows":
+                filename = i.split('\\')
+            else:
+                filename = i.split('/')
+
             filename = filename[-1].split('.')
 
             if len(filename[-1]) < 5:
@@ -341,9 +455,17 @@ class main(QtWidgets.QMainWindow):
             self.reset_widgets(all=True)
             self.draw_pdf_files()
 
+    def poppler_path_changed(self):
+        """
+        triggers if the texts in the plaintextedit is an actuall path
+        """
+        text = self.poppler_path.toPlainText().strip()
+        if os.path.exists(text):
+            sqlite.w('update settings set poppler_path = (?) where id is 1', text)
+
     def to_dir_changed(self):
         """
-        not used
+        triggers if the texts in the plaintextedit is an actuall path
         """
         text = self.to_dir.toPlainText().strip()
         if os.path.exists(text):
@@ -352,14 +474,18 @@ class main(QtWidgets.QMainWindow):
     def get_page_count_for_pdf(self, path):
         """
         :param path: string
-        :return: integer
+        :return: integer or False
         """
-        with open(path, "rb") as pdf_file:
-            try: pdf_reader = PdfFileReader(pdf_file)
-            except:
-                PyPDF2.utils.PdfReadError
-                return False
-            return pdf_reader.numPages
+        poppler_path = self.poppler_path.toPlainText().strip()
+        if not os.path.exists(poppler_path):
+            poppler_path = None
+
+        rv = pdfinfo_from_path(path, poppler_path=poppler_path)
+
+        if rv and rv['Pages']:
+            return rv['Pages']
+        else:
+            return False
 
     def decide_pages_per_cpu(self, inputpath):
         """
@@ -387,6 +513,9 @@ class main(QtWidgets.QMainWindow):
         page_count = self.get_page_count_for_pdf(inputpath)
         cpu_count = psutil.cpu_count(logical=False)
         alphabet = list(string.ascii_lowercase)
+
+        if cpu_count >= len(alphabet):
+            cpu_count = len(alphabet) -1
 
         if page_count and page_count / 3 > cpu_count:
             rv = {}
@@ -420,13 +549,19 @@ class main(QtWidgets.QMainWindow):
         tmp_jpeg_folder = t.tmp_folder(inputpath, hash=True, delete=True)
         tmp_folder = t.tmp_folder(outputpath, hash=True, delete=True)
 
-        rv = self.decide_pages_per_cpu(inputpath)
-        if rv:
-            image_list = convert_files_to_jpeg(rv, inputpath, tmp_jpeg_folder)
-        else:
-            image_list = convert_from_path(
-                inputpath, output_folder=tmp_jpeg_folder, fmt='jpeg', paths_only=True, jpegopt=dict(quality=100)
-            )
+        image_list = None
+
+        poppler_path = self.poppler_path.toPlainText().strip()
+        if not os.path.exists(poppler_path):
+            poppler_path = None
+
+        if self.pdf_threads.isChecked():
+            rv = self.decide_pages_per_cpu(inputpath)
+            if rv:
+                image_list = convert_files_to_jpeg(rv, inputpath, tmp_jpeg_folder, poppler_path)
+
+        if not image_list:
+            image_list = pdf_to_jpeg((inputpath, tmp_jpeg_folder, None, None, None, poppler_path,))
 
         if not image_list:
             return False
@@ -436,13 +571,20 @@ class main(QtWidgets.QMainWindow):
         for count, jpeg_image_path in enumerate(image_list):
             filename = t.zero_prefiller(count, lenght=5)
             webp_save_path = f'{tmp_folder}/{filename}.webp'
-            jobs.append((jpeg_image_path, webp_save_path, outputpath,))
+            webp_save_path = os.path.abspath(os.path.expanduser(webp_save_path))
 
-        convert_files_to_webp(jobs)
+            jobs.append((jpeg_image_path, webp_save_path, outputpath, self.webp_slider.value()))
+
+        if not self.wepb_threads.isChecked():
+            for i in jobs:
+                convert_files_to_webp(i)
+        else:
+            convert_files_to_webp(jobs)
+
         rv = recompress_fucntion(outputpath, tmp_folder)
 
         return dict(status=rv, tmp_webp_folder=tmp_folder, tmp_jpeg_folder=tmp_jpeg_folder, outputpath=outputpath)
 
 app = QtWidgets.QApplication(sys.argv)
-window = main()
+window = PDF2CBZmain()
 app.exec_()

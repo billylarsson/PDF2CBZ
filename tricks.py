@@ -1,6 +1,6 @@
 from PyQt5.Qt       import QObject, QRunnable, QThreadPool
 from PyQt5.QtCore   import pyqtSignal, pyqtSlot
-from database_stuff import DB, sqlite
+from database_stuff import sqlite
 from functools      import partial
 import hashlib
 import os
@@ -106,6 +106,7 @@ class ViktorinoxTechClass:
             base_dir = tempfile.gettempdir()
 
         complete_dir = base_dir + '/' + PROGRAM_NAME + '/' + folder_of_interest
+        complete_dir = os.path.abspath(os.path.expanduser(complete_dir))
 
         if os.path.exists(complete_dir) and not reuse:
             try:
