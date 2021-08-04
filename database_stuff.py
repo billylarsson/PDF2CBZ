@@ -165,53 +165,17 @@ class SQLite:
         """
         return self.sqlite_superfunction(self.sqliteconnection, table, column, type)
 
-    def write_one_master(self, query=None, values=None):
-        """
-        Write One (execute instead of execute many)
-        :param query: string
-        :param values: string or tuple (or even none)
-        """
-        def write_to_database(self, query, values):
-            with self.sqliteconnection:
-                if values == None:
-                    self.sqlitecursor.execute(query)
-                elif type(values) == list:
-                    self.sqlitecursor.execute(query, tuple(values))
-                elif type(values) == tuple:
-                    self.sqlitecursor.execute(query, values)
-                else:
-                    self.sqlitecursor.execute(query, (values,))
+    def empty_insert_query(self, table):
+        rv = self.road(empty_query_table=table)
+        return rv['query'], rv['values']
 
-        if query:
-            thread = Worker(partial(write_to_database, self, query, values))
-            self.threadpool.start(thread)
+    def get_description(self):
+        rv = self.road(description=True)
+        return rv
 
-    def write_many_master(self, query, values):
-        """
-        Write Many (executemany instead of execute)
-        :param query: string
-        :param values: list
-        """
-        def write_to_database(self, query, values):
-            with self.sqliteconnection:
-                self.sqlitecursor.executemany(query, values)
-
-        if query and values:
-            thread = Worker(partial(write_to_database, self, query, values))
-            self.threadpool.start(thread)
-
-    def w(self, query, values=None):
-        """
-        decides if write is executemany or just execute
-        :param query: string
-        :param values: list, tuple, string or none
-        """
-        if type(values) == list and type(values[0]) != tuple:
-            self.write_one_master(query, values)
-        elif type(values) == list:
-            self.write_many_master(query, values)
-        else:
-            self.write_one_master(query, values)
+    def ra(self, query=None, values=None, fetch='all'):
+        rv = self.road(query, values, fetch)
+        return rv
 
     def read_master(self, return_dict, query=None, values=None, fetch="one, all or pointer"):
         """
@@ -230,7 +194,8 @@ class SQLite:
                 self.sqlitecursor.execute(query, (values,))
 
         elif query:
-            try: self.sqlitecursor.execute(query)
+            try:
+                self.sqlitecursor.execute(query)
             except Error:
                 return_dict['return_value'] = [False]
                 return False
@@ -245,6 +210,10 @@ class SQLite:
 
         elif fetch == 'pointer':
             return_dict['return_value'] = [True]
+
+    def ro(self, query=None, values=None, fetch='one'):
+        rv = self.road(query, values, fetch)
+        return rv
 
     def road(self, query=None, values=None, fetch=None, description=False, empty_query_table=False):
         """
@@ -284,22 +253,55 @@ class SQLite:
 
         return rd['return_value'][0]
 
+    def w(self, query, values=None):
+        """
+        decides if write is executemany or just execute
+        :param query: string
+        :param values: list, tuple, string or none
+        """
+        if type(values) == list and type(values[0]) != tuple:
+            self.write_one_master(query, values)
+        elif type(values) == list:
+            self.write_many_master(query, values)
+        else:
+            self.write_one_master(query, values)
 
-    def ra(self, query=None, values=None, fetch='all'):
-        rv = self.road(query, values, fetch)
-        return rv
+    def write_many_master(self, query, values):
+        """
+        Write Many (executemany instead of execute)
+        :param query: string
+        :param values: list
+        """
 
-    def ro(self, query=None, values=None, fetch='one'):
-        rv = self.road(query, values, fetch)
-        return rv
+        def write_to_database(self, query, values):
+            with self.sqliteconnection:
+                self.sqlitecursor.executemany(query, values)
 
-    def get_description(self):
-        rv = self.road(description=True)
-        return rv
+        if query and values:
+            thread = Worker(partial(write_to_database, self, query, values))
+            self.threadpool.start(thread)
 
-    def empty_insert_query(self, table):
-        rv = self.road(empty_query_table=table)
-        return rv['query'], rv['values']
+    def write_one_master(self, query=None, values=None):
+        """
+        Write One (execute instead of execute many)
+        :param query: string
+        :param values: string or tuple (or even none)
+        """
+
+        def write_to_database(self, query, values):
+            with self.sqliteconnection:
+                if values == None:
+                    self.sqlitecursor.execute(query)
+                elif type(values) == list:
+                    self.sqlitecursor.execute(query, tuple(values))
+                elif type(values) == tuple:
+                    self.sqlitecursor.execute(query, values)
+                else:
+                    self.sqlitecursor.execute(query, (values,))
+
+        if query:
+            thread = Worker(partial(write_to_database, self, query, values))
+            self.threadpool.start(thread)
 
 sqlite = SQLite()
 

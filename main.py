@@ -273,21 +273,105 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             if rv:
                 label.setPlainText(rv)
 
-    def slider_changed(self):
-        self.webp_label.setText('WEBP QUALITY: ' + str(self.webp_slider.value()))
-        self.save_setting(self.webp_slider, 'webp_slider')
+    def get_poppler_path(self):
+        poppler_path = self.poppler_path.toPlainText().strip()
+        if not os.path.exists(poppler_path):
+            poppler_path = None
+        return poppler_path
 
-    def save_setting(self, widget, setting_var):
-        widget_type = widget.metaObject().className()
-        if widget_type == 'QSlider':
-            value = widget.value()
-        elif widget_type == 'QCheckBox':
-            value = widget.isChecked()
+    def convert_pdf_to_images(self, inputpath, outputpath):
+        """
+        if large pdf job is spread across cpu's else just one cpu-job
+        extract jpeg files into a tmp_folder and then convert them to webp
+        :param inputpath: string
+        :param outputpath: string
+        :return: dictionary
+        """
+        tmp_jpeg_folder = t.tmp_folder(inputpath, hash=True, delete=True)
+        tmp_folder = t.tmp_folder(outputpath, hash=True, delete=True)
+
+        image_list = None
+
+        poppler_path = self.get_poppler_path()
+
+        if self.pdf_threads.isChecked():
+            rv = self.decide_pages_per_cpu(inputpath)
+            if rv:
+                image_list = convert_files_to_jpeg(rv, inputpath, tmp_jpeg_folder, poppler_path)
+
+        if not image_list:
+            image_list = pdf_to_jpeg((inputpath, tmp_jpeg_folder, None, None, None, poppler_path,))
+
+        if not image_list:
+            return False
+
+        jobs = []
+
+        for count, jpeg_image_path in enumerate(image_list):
+            filename = t.zero_prefiller(count, lenght=5)
+            webp_save_path = f'{tmp_folder}/{filename}.webp'
+            webp_save_path = os.path.abspath(os.path.expanduser(webp_save_path))
+
+            jobs.append((jpeg_image_path, webp_save_path, outputpath, self.webp_slider.value()))
+
+        if not self.wepb_threads.isChecked():
+            for i in jobs:
+                convert_files_to_webp(i)
         else:
-            print('You need to spank your monkey harder!')
-            return
+            convert_files_to_webp(jobs)
 
-        sqlite.w(f'update settings set {setting_var} = (?) where id is 1', value)
+        rv = recompress_fucntion(outputpath, tmp_folder)
+
+        return dict(status=rv, tmp_webp_folder=tmp_folder, tmp_jpeg_folder=tmp_jpeg_folder, outputpath=outputpath)
+
+    def decide_pages_per_cpu(self, inputpath):
+        """
+        counts physical cores and calculates a fair amount of images per core, a
+        dictionary is created with letter (key) that will be used to save the temporary
+        jpeg files. If the pdf has to less files, then job ignores multiple cpu's
+        :param inputpath: string
+        :return: dictionary or bool
+        """
+
+        def correct_rvdict(rv):
+            """
+            rv['a'] cannot be less than 2 (begin and end)
+            this investegates, interfers and corrects that
+            """
+            if rv['a'] == []:
+                rv.pop('a')
+
+            elif rv['a'] == [0]:
+                rv['b'].append(0)
+                rv.pop('a')
+
+            for i in rv:
+                rv[i].sort()
+
+        page_count = self.get_page_count_for_pdf(inputpath)
+        cpu_count = psutil.cpu_count(logical=False)
+        alphabet = list(string.ascii_lowercase)
+
+        if cpu_count >= len(alphabet):
+            cpu_count = len(alphabet) - 1
+
+        if page_count and page_count / 3 > cpu_count:
+            rv = {}
+            pages_per_cpu = math.ceil(page_count / cpu_count)
+            pages_per_cpu = int(pages_per_cpu)
+            for c in range(cpu_count - 1, -1, -1):
+                letter = alphabet[c]
+                rv[letter] = []
+                for cc in range(pages_per_cpu):
+                    if page_count < 0:
+                        break
+                    rv[letter].append(page_count)
+                    page_count -= 1
+
+            correct_rvdict(rv)
+            return rv
+
+        return False
 
     def deside_figure_size(self):
         """
@@ -303,7 +387,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             self.figure_height += math.floor(left_over / math.floor(av))
             self.figure_height = int(self.figure_height)
 
-        self.figure_height -= 3 # gives geometry.height() breathing room
+        self.figure_height -= 3  # gives geometry.height() breathing room
 
         # WIDTH >
         self.figure_width = self.figure_height * 0.6
@@ -313,29 +397,63 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             self.figure_width += math.floor(left_over / math.floor(av))
             self.figure_width = int(self.figure_width)
 
-        self.figure_width -= 3 # gives geometry.width() breathing room
+        self.figure_width -= 3  # gives geometry.width() breathing room
 
+    def draw_more_pdf_files(self):
+        self.reset_widgets(all=True)
+        self.draw_pdf_files()
 
-    def reset_widgets(self, widgets=None, all=False):
-        def close_and_pop(self, key):
-            for count in range(len(self.widgets[key]) - 1, -1, -1):
-                self.widgets[key][count].close()
-                self.widgets[key].pop(count)
-        if all:
-            for key in self.widgets:
-                close_and_pop(self, key)
+    def draw_pdf_files(self):
+        """
+        draws widgets from self.pdf_files, if present
+        """
+        def thread_extract_image(widget, tmp_folder):
+            pdf_to_jpeg((widget.data['path'], tmp_folder, 0, 1, 'Cover', self.get_poppler_path()))
 
-        if widgets and widgets in self.widgets:
-            close_and_pop(self, widgets)
+        if 'pdf_files' not in dir(self):
+            return
 
-        self.reset_ht_wt()
+        for path in self.pdf_files:
+            if self.figure_height + self.pdf_ht > self.canvas.height():
+                break
 
-    def reset_ht_wt(self):
-        self.pdf_wt = 3
-        self.pdf_ht = 3
+            if self.pdf_files[path]['drawn']:
+                continue
 
-        self.cbz_wt = 3
-        self.cbz_ht = 3
+            data = sqlite.ro('select * from files where local_path = (?)', path)
+            if data:
+                continue
+
+            self.pdf_files[path]['drawn'] = True
+            widget = PDFWidget(self.canvas, self, type='PDF')
+            self.widgets['main'].append(widget)
+            widget.data = self.pdf_files[path]
+            widget.post_init()
+
+            tmp_folder = t.tmp_folder()
+            t.start_thread(
+                thread_extract_image, worker_arguments=(widget, tmp_folder,),
+                finished_function=widget.set_pixmap, finished_arguments=(tmp_folder, True,)
+            )
+
+    def dummy(self, sleep=1):
+        time.sleep(sleep)
+
+    def from_dir_changed(self):
+        """
+        triggers if the texts in the plaintextedit is an actuall path
+        """
+        text = self.from_dir.toPlainText().strip()
+        if os.path.exists(text):
+            sqlite.w('update settings set source_path = (?) where id is 1', text)
+            all_files = self.get_all_files_from_path(text, extension='PDF')
+            self.pdf_files = self.make_all_files_dictionary(all_files)
+
+            if not self.pdf_files:
+                return
+
+            self.reset_widgets(all=True)
+            self.draw_pdf_files()
 
     def get_all_files_from_path(self, path, extension=None):
         """
@@ -365,6 +483,20 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
 
         return all_files
 
+    def get_page_count_for_pdf(self, path):
+        """
+        :param path: string
+        :return: integer or False
+        """
+        poppler_path = self.get_poppler_path()
+
+        rv = pdfinfo_from_path(path, poppler_path=poppler_path)
+
+        if rv and rv['Pages']:
+            return rv['Pages']
+        else:
+            return False
+
     def make_all_files_dictionary(self, all_files, append_to_this=False):
         """
         makes a working dictionary
@@ -378,7 +510,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             rdict = {}
 
         for i in all_files:
-            count = len(rdict)+1
+            count = len(rdict) + 1
             i = os.path.abspath(os.path.expanduser(i))
 
             if platform.system() == "Windows":
@@ -410,51 +542,6 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
 
         return rdict
 
-    def draw_more_pdf_files(self):
-        self.reset_widgets(all=True)
-        self.draw_pdf_files()
-
-    def draw_pdf_files(self):
-        """
-        draws widgets from self.pdf_files, if present
-        """
-        if 'pdf_files' not in dir(self):
-            return
-
-        for path in self.pdf_files:
-            if self.figure_height + self.pdf_ht > self.canvas.height():
-                break
-
-            if self.pdf_files[path]['drawn']:
-                continue
-
-            data = sqlite.ro('select * from files where local_path = (?)', path)
-            if data:
-                continue
-
-            self.pdf_files[path]['drawn'] = True
-            widget = PDFWidget(self.canvas, self, type='PDF')
-            self.widgets['main'].append(widget)
-            widget.data = self.pdf_files[path]
-            widget.post_init()
-
-
-    def from_dir_changed(self):
-        """
-        triggers if the texts in the plaintextedit is an actuall path
-        """
-        text = self.from_dir.toPlainText().strip()
-        if os.path.exists(text):
-            sqlite.w('update settings set source_path = (?) where id is 1', text)
-            all_files = self.get_all_files_from_path(text, extension='PDF')
-            self.pdf_files = self.make_all_files_dictionary(all_files)
-
-            if not self.pdf_files:
-                return
-
-            self.reset_widgets(all=True)
-            self.draw_pdf_files()
-
     def poppler_path_changed(self):
         """
         triggers if the texts in the plaintextedit is an actuall path
@@ -463,6 +550,44 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         if os.path.exists(text):
             sqlite.w('update settings set poppler_path = (?) where id is 1', text)
 
+    def reset_ht_wt(self):
+        self.pdf_wt = 3
+        self.pdf_ht = 3
+
+        self.cbz_wt = 3
+        self.cbz_ht = 3
+
+    def reset_widgets(self, widgets=None, all=False):
+        def close_and_pop(self, key):
+            for count in range(len(self.widgets[key]) - 1, -1, -1):
+                self.widgets[key][count].close()
+                self.widgets[key].pop(count)
+
+        if all:
+            for key in self.widgets:
+                close_and_pop(self, key)
+
+        if widgets and widgets in self.widgets:
+            close_and_pop(self, widgets)
+
+        self.reset_ht_wt()
+
+    def save_setting(self, widget, setting_var):
+        widget_type = widget.metaObject().className()
+        if widget_type == 'QSlider':
+            value = widget.value()
+        elif widget_type == 'QCheckBox':
+            value = widget.isChecked()
+        else:
+            print('You need to spank your monkey harder!')
+            return
+
+        sqlite.w(f'update settings set {setting_var} = (?) where id is 1', value)
+
+    def slider_changed(self):
+        self.webp_label.setText('WEBP QUALITY: ' + str(self.webp_slider.value()))
+        self.save_setting(self.webp_slider, 'webp_slider')
+
     def to_dir_changed(self):
         """
         triggers if the texts in the plaintextedit is an actuall path
@@ -470,120 +595,6 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         text = self.to_dir.toPlainText().strip()
         if os.path.exists(text):
             sqlite.w('update settings set destination_path = (?) where id is 1', text)
-
-    def get_page_count_for_pdf(self, path):
-        """
-        :param path: string
-        :return: integer or False
-        """
-        poppler_path = self.poppler_path.toPlainText().strip()
-        if not os.path.exists(poppler_path):
-            poppler_path = None
-
-        rv = pdfinfo_from_path(path, poppler_path=poppler_path)
-
-        if rv and rv['Pages']:
-            return rv['Pages']
-        else:
-            return False
-
-    def decide_pages_per_cpu(self, inputpath):
-        """
-        counts physical cores and calculates a fair amount of images per core, a
-        dictionary is created with letter (key) that will be used to save the temporary
-        jpeg files. If the pdf has to less files, then job ignores multiple cpu's
-        :param inputpath: string
-        :return: dictionary or bool
-        """
-        def correct_rvdict(rv):
-            """
-            rv['a'] cannot be less than 2 (begin and end)
-            this investegates, interfers and corrects that
-            """
-            if rv['a'] == []:
-                rv.pop('a')
-
-            elif rv['a'] == [0]:
-                rv['b'].append(0)
-                rv.pop('a')
-
-            for i in rv:
-                rv[i].sort()
-
-        page_count = self.get_page_count_for_pdf(inputpath)
-        cpu_count = psutil.cpu_count(logical=False)
-        alphabet = list(string.ascii_lowercase)
-
-        if cpu_count >= len(alphabet):
-            cpu_count = len(alphabet) -1
-
-        if page_count and page_count / 3 > cpu_count:
-            rv = {}
-            pages_per_cpu = math.ceil(page_count/cpu_count)
-            pages_per_cpu = int(pages_per_cpu)
-            for c in range(cpu_count-1, -1, -1):
-                letter = alphabet[c]
-                rv[letter] = []
-                for cc in range(pages_per_cpu):
-                    if page_count < 0:
-                        break
-                    rv[letter].append(page_count)
-                    page_count -= 1
-
-            correct_rvdict(rv)
-            return rv
-
-        return False
-
-    def dummy(self):
-        time.sleep(1)
-
-    def convert_pdf_to_images(self, inputpath, outputpath):
-        """
-        if large pdf job is spread across cpu's else just one cpu-job
-        extract jpeg files into a tmp_folder and then convert them to webp
-        :param inputpath: string
-        :param outputpath: string
-        :return: dictionary
-        """
-        tmp_jpeg_folder = t.tmp_folder(inputpath, hash=True, delete=True)
-        tmp_folder = t.tmp_folder(outputpath, hash=True, delete=True)
-
-        image_list = None
-
-        poppler_path = self.poppler_path.toPlainText().strip()
-        if not os.path.exists(poppler_path):
-            poppler_path = None
-
-        if self.pdf_threads.isChecked():
-            rv = self.decide_pages_per_cpu(inputpath)
-            if rv:
-                image_list = convert_files_to_jpeg(rv, inputpath, tmp_jpeg_folder, poppler_path)
-
-        if not image_list:
-            image_list = pdf_to_jpeg((inputpath, tmp_jpeg_folder, None, None, None, poppler_path,))
-
-        if not image_list:
-            return False
-
-        jobs = []
-
-        for count, jpeg_image_path in enumerate(image_list):
-            filename = t.zero_prefiller(count, lenght=5)
-            webp_save_path = f'{tmp_folder}/{filename}.webp'
-            webp_save_path = os.path.abspath(os.path.expanduser(webp_save_path))
-
-            jobs.append((jpeg_image_path, webp_save_path, outputpath, self.webp_slider.value()))
-
-        if not self.wepb_threads.isChecked():
-            for i in jobs:
-                convert_files_to_webp(i)
-        else:
-            convert_files_to_webp(jobs)
-
-        rv = recompress_fucntion(outputpath, tmp_folder)
-
-        return dict(status=rv, tmp_webp_folder=tmp_folder, tmp_jpeg_folder=tmp_jpeg_folder, outputpath=outputpath)
 
 app = QtWidgets.QApplication(sys.argv)
 window = PDF2CBZmain()

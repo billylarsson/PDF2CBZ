@@ -144,7 +144,7 @@ class PDFWidget(GOD):
         self.make_labels()
         self.setStyleSheet('background-color: rgb(180,180,180)')
 
-    def set_pixmap(self, tmp_folder):
+    def set_pixmap(self, tmp_folder, delete=False):
         """
         pixmap is set first AFTER the file has been completly processed
         :param tmp_folder: string
@@ -152,9 +152,12 @@ class PDFWidget(GOD):
         if not os.path.exists(tmp_folder):
             return False
 
-        label = QtWidgets.QLabel(self)
-        label.setGeometry(1, 1, self.width() - 2, self.status_label.geometry().top() - 2)
-        label.show()
+        if 'pixmap_label' in dir(self):
+            return
+
+        self.pixmap_label = QtWidgets.QLabel(self)
+        self.pixmap_label.setGeometry(1, 1, self.width() - 2, self.status_label.geometry().top() - 2)
+        self.pixmap_label.show()
 
         for walk in os.walk(tmp_folder):
             files = [walk[0] + '/' + x for x in walk[2]]
@@ -163,13 +166,17 @@ class PDFWidget(GOD):
                 return False
 
             files.sort()
-
+            w = self.pixmap_label.width()
+            h = self.pixmap_label.height()
             pixmap = QPixmap(
-                files[0]).scaled(label.width(), label.height(), transformMode=QtCore.Qt.SmoothTransformation
+                files[0]).scaled(w, h, transformMode=QtCore.Qt.SmoothTransformation
             )
 
-            label.setPixmap(pixmap)
+            self.pixmap_label.setPixmap(pixmap)
             break
+
+        if delete:
+            shutil.rmtree(tmp_folder)
 
     def process_file(self):
         """

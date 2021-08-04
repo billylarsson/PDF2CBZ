@@ -57,15 +57,30 @@ class ViktorinoxTechClass:
                      ):
 
         if worker_arguments:
+            # makes sure the arguents are put into a tuple
+            if type(worker_arguments) != tuple:
+                worker_arguments = (worker_arguments,)
             thread = Worker(partial(worker_function, *worker_arguments))
+
         else:
             thread = Worker(partial(worker_function))
 
         if finished_function:
-            if finished_arguments:
-                thread.signals.finished.connect(partial(finished_function, *finished_arguments))
-            else:
-                thread.signals.finished.connect(partial(finished_function))
+
+            if type(finished_function) != list:
+                # makes finished function(s) into a list in case multiple launches are requested
+                finished_function = [finished_function]
+
+            for launcher in finished_function:
+
+                if finished_arguments:
+                    # makes sure the arguents are put into a tuple
+                    if type(finished_arguments) != tuple:
+                        finished_arguments = (finished_arguments,)
+                    thread.signals.finished.connect(partial(launcher, *finished_arguments))
+
+                else:
+                    thread.signals.finished.connect(partial(launcher))
 
         threadpool = tech.threadpool(name=name, threads=threads)
         threadpool.start(thread)
