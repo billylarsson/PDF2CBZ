@@ -433,7 +433,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             tmp_folder = t.tmp_folder()
             t.start_thread(
                 thread_extract_image, worker_arguments=(widget, tmp_folder,),
-                finished_function=widget.set_pixmap, finished_arguments=(tmp_folder, True,)
+                finished_function=widget.set_pixmap, finished_arguments=(tmp_folder, True,), threads=3, name='refresh'
             )
 
     def dummy(self, sleep=1):
