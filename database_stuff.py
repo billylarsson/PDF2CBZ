@@ -69,9 +69,7 @@ class SQLite:
                     if not os.path.exists(path):
                         pathlib.Path(path).mkdir(parents=True)
 
-        if platform.system() == "Windows":
-            os.chdir(os.path.realpath(__file__)[0:os.path.realpath(__file__).rfind('\\')])
-        else:
+        if platform.system() != "Windows":
             os.chdir(os.path.realpath(__file__)[0:os.path.realpath(__file__).rfind('/')])
 
         databases = dict(
@@ -87,8 +85,11 @@ class SQLite:
                 else:
                     devpath = ""
 
-                sqlite_file = f'{devpath}/{NEW_APP_DIR.lower()}_database.sqlite'
-                sqlite_file = os.path.abspath(os.path.expanduser(sqlite_file))
+                if platform.system() != "Windows":
+                    sqlite_file = f'{devpath}/{NEW_APP_DIR.lower()}_database.sqlite'
+                    sqlite_file = os.path.abspath(os.path.expanduser(sqlite_file))
+                else:
+                    sqlite_file = f'{NEW_APP_DIR.lower()}_database.sqlite'
 
                 f.write(f'local_database = "{sqlite_file}"\n')
                 f.close()
