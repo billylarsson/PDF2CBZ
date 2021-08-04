@@ -96,7 +96,7 @@ class ViktorinoxTechClass:
             return data[index]
 
     @staticmethod
-    def tmp_folder(folder_of_interest=None, reuse=False, delete=False, hash=False):
+    def tmp_folder(folder_of_interest=None, reuse=False, delete=False, hash=False, create_dir=True, return_base=False):
         """
         generates a temporary folder for user
         i prefer to keep my trash inside /mnt/ramdisk
@@ -139,10 +139,13 @@ class ViktorinoxTechClass:
                     if not os.path.exists(tmp):
                         complete_dir = tmp
 
-        if not os.path.exists(complete_dir):
+        if not os.path.exists(complete_dir) and create_dir:
             pathlib.Path(complete_dir).mkdir(parents=True)
 
-        return complete_dir
+        if return_base:
+            return base_dir
+        else:
+            return complete_dir
 
 tech = ViktorinoxTechClass()
 

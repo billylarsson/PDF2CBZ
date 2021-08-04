@@ -178,6 +178,14 @@ class PDFWidget(GOD):
         if delete:
             shutil.rmtree(tmp_folder)
 
+    def preprocess_file(self):
+        if self.data['processed']:
+            return
+
+        self.status_label.setText('PROCESSING')
+        self.status_label.setStyleSheet('background-color: magenta ; color: white')
+        t.start_thread(self.main.dummy, finished_function=self.process_file)
+
     def process_file(self):
         """
         alot of checks is beeing made before the file is beeing
@@ -185,12 +193,16 @@ class PDFWidget(GOD):
         will be deleted and self.data['processed'] will be set to True
         :return: bool
         """
-        self.data['processed'] = True
+
+        if self.data['processed']:
+            return
 
         def error(self, text, stylesheet='background-color: red ; color: white'):
             self.status_label.setText(text)
             self.status_label.setStyleSheet(stylesheet)
             self.load_next_job()
+
+        self.data['processed'] = True
 
         md5 = t.md5_hash_file(self.data['path'])
         data = sqlite.ro('select * from files where md5 = (?)', md5)
@@ -272,6 +284,10 @@ class PDFWidget(GOD):
             if self.main.delete_source_pdf.isChecked():
                 os.remove(self.data['path'])
 
+        elif not rv['status']:
+            self.status_label.setText('HDD FULL')
+            self.status_label.setStyleSheet('background-color: red ; color: black')
+
         if not self.load_next_job() and self.main.continous_convertion.isChecked():
             self.main.draw_more_pdf_files()
             self.load_next_job()
@@ -291,16 +307,39 @@ class PDFWidget(GOD):
                     return True
 
     def mousePressEvent(self, ev: QtGui.QMouseEvent) -> None:
-        if self.main.dev_mode:
-            return
+        class ShadeLabel(QtWidgets.QLabel):
+            def __init__(self, place):
+                super().__init__(place)
+                place.status_label.setText('DELETED FROM HDD')
+                place.status_label.setStyleSheet('background-color: red ; color: white')
+                self.setGeometry(0,0,place.width(),place.height())
+                self.setStyleSheet('background-color: rgba(30,30,30,180)')
+                self.show()
+            def mousePressEvent(self, ev: QtGui.QMouseEvent) -> None:
+                pass
 
         if ev.button() == 1:
-
-            self.status_label.setText('PROCESSING')
-            self.status_label.setStyleSheet('background-color: magenta ; color: white')
-
-            t.start_thread(self.main.dummy, finished_function=self.process_file)
+            self.preprocess_file()
 
         elif ev.button() == 2:
-            self.data['processed'] = False
-            print(self.data['path'] + ' removed from blocklist!')
+            menu = QtWidgets.QMenu()
+            if self.data['processed'] and os.path.exists(self.data['path']):
+                process_file = menu.addAction('RE-PROCESS FILE (may fail)')
+            else:
+                process_file = menu.addAction('PROCESS FILE')
+
+            menu.addSeparator()
+
+            delete_file = menu.addAction('DELETE FILE (WITHOUT CONFIRMATION!)')
+
+            action = menu.exec_(self.mapToGlobal(ev.pos()))
+
+            if action == process_file:
+                self.data['processed'] = False
+                self.preprocess_file()
+
+            elif action == delete_file:
+                if os.path.exists(self.data['path']):
+                    os.remove(self.data['path'])
+
+                ShadeLabel(self)

@@ -18,7 +18,6 @@ import string
 import sys
 import time
 
-
 FIGURE_HEIGHT = 300
 
 def pdf_to_jpeg(job):
@@ -43,12 +42,13 @@ def pdf_to_jpeg(job):
         poppler_path=poppler_path,
     )
     return image_list
-def convert_files_to_jpeg(joblist, inputpath, tmp_jpeg_folder, poppler_path=None):
+def convert_files_to_jpeg(joblist, inputpath, tmp_jpeg_folder, poppler_path=None, show_hdd_space=None):
     """
+    if tmp_folder goes below 100mb False is returned
     :param joblist: dictionary with letters as keys containing list indexes (int)
     :param inputpath: string to pdf file-path
     :param tmp_jpeg_folder: string
-    :return: list with image paths
+    :return: list with image paths, or False if hdd full
     """
     image_list = []
     threadlist = []
@@ -59,6 +59,13 @@ def convert_files_to_jpeg(joblist, inputpath, tmp_jpeg_folder, poppler_path=None
         for _, rv in zip(joblist, executor.map(pdf_to_jpeg, threadlist)):
             for path in rv:
                 image_list.append(path)
+
+            if show_hdd_space:
+                show_hdd_space()
+
+            _, _, tmp_free = shutil.disk_usage(tmp_jpeg_folder)
+            if (tmp_free/1000000) < 100:
+                return False
 
     image_list.sort()
     return image_list
@@ -72,15 +79,20 @@ def jpeg_to_webp(job):
     source_path, destination_path, _, webp_quality = job
     image = Image.open(source_path)
     image.save(destination_path, 'webp', method=6, quality=webp_quality)
-    return destination_path
-def convert_files_to_webp(joblist):
+    return dict(source=source_path, destination=destination_path)
+def convert_files_to_webp(joblist, show_hdd_space=None):
     """
     :param joblist: list with jpeg_files
     :return:
     """
     with concurrent.futures.ProcessPoolExecutor() as executor:
         for _, rv in zip(joblist, executor.map(jpeg_to_webp, joblist)):
-            pass
+
+            if rv and os.path.getsize(rv['destination']) > 0:
+                os.remove(rv['source'])
+
+            if show_hdd_space:
+                show_hdd_space()
 
 def recompress_fucntion(destination_file, tmp_folder):
     """
@@ -146,7 +158,12 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
 
         self.setWindowTitle('PDF to WEBP-compressed CBZ v0.2 build:667')
         self.setStyleSheet('background-color: rgb(20,20,20) ; color: rgb(255,255,255)')
-        self.dev_mode = False
+
+        if 'devmode' in sys.argv:
+            self.dev_mode = True
+        else:
+            self.dev_mode = False
+
         self.setFixedSize(1800, 1000)
         self.widgets = dict(main=[], pdf=[], cbz=[])
 
@@ -157,13 +174,13 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
 
         self.from_dir = QtWidgets.QPlainTextEdit(self, toolTip='SOURCE FOLDER')
         self.from_dir.setStyleSheet('background-color: rgb(30,30,30) ; color: rgb(235,235,235)')
-        self.from_dir.setGeometry(self.wt, self.ht, int(self.width() * 0.5), 30)
+        self.from_dir.setGeometry(self.wt, self.ht, int(self.width() * 0.4), 30)
         self.ht += self.from_dir.height() + 3
         self.from_dir.textChanged.connect(self.from_dir_changed)
 
         self.to_dir = QtWidgets.QPlainTextEdit(self, toolTip='DESTINATION FOLDER')
         self.to_dir.setStyleSheet('background-color: rgb(30,30,30) ; color: rgb(235,235,235)')
-        self.to_dir.setGeometry(self.wt, self.ht, int(self.width() * 0.5), 30)
+        self.to_dir.setGeometry(self.wt, self.ht, int(self.width() * 0.4), 30)
         self.ht += self.to_dir.height() + 3
         self.to_dir.textChanged.connect(self.to_dir_changed)
 
@@ -225,16 +242,22 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         self.wepb_threads.setToolTip('Checked == FASTER')
         self.wepb_threads.setStyleSheet('background-color: rgb(30,30,30) ; color: rgb(235,235,235)')
 
-        self.btn_more = QtWidgets.QPushButton(self, text='REFRESH')
+        self.btn_more = QtWidgets.QPushButton(self, text='NEXT')
         self.btn_more.move(self.wepb_threads.geometry().right() + 3, 3)
+        self.btn_more.setFixedWidth(int(self.btn_more.width() * 0.7))
         self.btn_more.clicked.connect(self.draw_more_pdf_files)
+
+        self.btn_refresh = QtWidgets.QPushButton(self, text='REFRESH')
+        self.btn_refresh.move(self.btn_more.geometry().right() + 3, 3)
+        self.btn_refresh.setFixedWidth(int(self.btn_refresh.width() * 0.7))
+        self.btn_refresh.clicked.connect(self.from_dir_changed)
 
         tt = 'example -> /home/user/poppler-0.68.0/bin\n\nWindows download: http://blog.alivate.com.au/poppler-windows/'
         self.poppler_path = QtWidgets.QPlainTextEdit(self, toolTip=tt)
         self.poppler_path.setStyleSheet('background-color: rgb(30,30,30) ; color: rgb(235,235,235)')
         x = self.webp_slider.geometry().right() + 3
         y = self.webp_slider.geometry().top()
-        w = self.btn_more.geometry().right() - self.continous_convertion.geometry().left()
+        w = self.btn_refresh.geometry().right() - self.continous_convertion.geometry().left()
         h = self.webp_label.height()
         self.poppler_path.setGeometry(x, y, w, h)
         self.poppler_path.textChanged.connect(self.poppler_path_changed)
@@ -273,6 +296,25 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             if rv:
                 label.setPlainText(rv)
 
+        self.show_hdd_spaces()
+
+    def show_hdd_spaces(self):
+        title = 'PDF to WEBP-compressed CBZ v0.2 build:667'
+
+        base_dir = t.tmp_folder(create_dir=False, return_base=True)
+        if os.path.exists(base_dir):
+            tmp_total, tmp_used, tmp_free = shutil.disk_usage(base_dir)
+            title += f" | Working dir: TOTAL: {int(tmp_total/1000000)}mb "
+            title += f"USED: {int(tmp_used/1000000)}mb FREE: {int(tmp_free/1000000)}mb"
+
+        to_dir = self.to_dir.toPlainText().strip()
+        if os.path.exists(to_dir):
+            to_total, to_used, to_free = shutil.disk_usage(to_dir)
+            title += f" | Destination dir: TOTAL: {int(to_total/1000000)}mb "
+            title += f"USED: {int(to_used/1000000)}mb FREE: {int(to_free/1000000)}mb"
+
+        self.setWindowTitle(title)
+
     def get_poppler_path(self):
         poppler_path = self.poppler_path.toPlainText().strip()
         if not os.path.exists(poppler_path):
@@ -297,7 +339,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         if self.pdf_threads.isChecked():
             rv = self.decide_pages_per_cpu(inputpath)
             if rv:
-                image_list = convert_files_to_jpeg(rv, inputpath, tmp_jpeg_folder, poppler_path)
+                image_list = convert_files_to_jpeg(rv, inputpath, tmp_jpeg_folder, poppler_path, self.show_hdd_spaces)
 
         if not image_list:
             image_list = pdf_to_jpeg((inputpath, tmp_jpeg_folder, None, None, None, poppler_path,))
@@ -318,7 +360,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             for i in jobs:
                 convert_files_to_webp(i)
         else:
-            convert_files_to_webp(jobs)
+            convert_files_to_webp(jobs, self.show_hdd_spaces)
 
         rv = recompress_fucntion(outputpath, tmp_folder)
 
@@ -433,8 +475,12 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             tmp_folder = t.tmp_folder()
             t.start_thread(
                 thread_extract_image, worker_arguments=(widget, tmp_folder,),
-                finished_function=widget.set_pixmap, finished_arguments=(tmp_folder, True,), threads=3, name='refresh'
+                finished_function=widget.set_pixmap, finished_arguments=(tmp_folder, True,),
+                threads=4, name='refresh'
             )
+
+            if self.dev_mode:
+                return
 
     def dummy(self, sleep=1):
         time.sleep(sleep)
