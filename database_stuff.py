@@ -315,6 +315,8 @@ class DB:
         del_source = sqlite.db_sqlite('settings', 'del_source', 'integer')
         continous = sqlite.db_sqlite('settings', 'continous', 'integer')
         poppler_path = sqlite.db_sqlite('settings', 'poppler_path')
+        resize_4k = sqlite.db_sqlite('settings', 'resize_4k', 'integer')
+
 
     class files:
         local_path = sqlite.db_sqlite('files', 'local_path')

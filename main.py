@@ -76,8 +76,13 @@ def jpeg_to_webp(job):
     :param job: tuple -> 0:jpeg_file_path, 1:save_webp_file_path, 2:webp_quality
     :return: string -> webp_file_location
     """
-    source_path, destination_path, _, webp_quality = job
+    source_path, destination_path, _, webp_quality, resize_4k = job
     image = Image.open(source_path)
+
+    if resize_4k and image.size[0] > 3840:
+        image_size = 3840, round(image.size[1] * (3840 / image.size[0]))
+        image.thumbnail(image_size, Image.ANTIALIAS)
+
     image.save(destination_path, 'webp', method=6, quality=webp_quality)
     return dict(source=source_path, destination=destination_path)
 def convert_files_to_webp(joblist, show_hdd_space=None):
@@ -242,8 +247,19 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         self.wepb_threads.setToolTip('Checked == FASTER')
         self.wepb_threads.setStyleSheet('background-color: rgb(30,30,30) ; color: rgb(235,235,235)')
 
+        self.check_4k = QtWidgets.QCheckBox(self, text="RESIZE < 4K")
+        self.check_4k.setStyleSheet('background-color: rgb(30,30,30) ; color: rgb(235,235,235)')
+        self.check_4k.move(self.wepb_threads.geometry().right() + 3, 3)
+
+        rv = t.retrieve_setting(DB.settings.resize_4k)
+        if rv:
+            self.check_4k.setChecked(rv)
+
+        self.check_4k.stateChanged.connect(partial(
+            self.save_setting, self.delete_source_pdf, 'resize_4k'))
+
         self.btn_more = QtWidgets.QPushButton(self, text='NEXT')
-        self.btn_more.move(self.wepb_threads.geometry().right() + 3, 3)
+        self.btn_more.move(self.check_4k.geometry().right() + 3, 3)
         self.btn_more.setFixedWidth(int(self.btn_more.width() * 0.7))
         self.btn_more.clicked.connect(self.draw_more_pdf_files)
 
@@ -304,14 +320,14 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         base_dir = t.tmp_folder(create_dir=False, return_base=True)
         if os.path.exists(base_dir):
             tmp_total, tmp_used, tmp_free = shutil.disk_usage(base_dir)
-            title += f" | Working dir: TOTAL: {int(tmp_total/1000000)}mb "
-            title += f"USED: {int(tmp_used/1000000)}mb FREE: {int(tmp_free/1000000)}mb"
+            title += f" | WORKING DIR SIZE: {int(tmp_total/1000000)}mb | "
+            title += f"USED: {int(tmp_used/1000000)}mb | FREE: {int(tmp_free/1000000)}mb"
 
         to_dir = self.to_dir.toPlainText().strip()
         if os.path.exists(to_dir):
             to_total, to_used, to_free = shutil.disk_usage(to_dir)
-            title += f" | Destination dir: TOTAL: {int(to_total/1000000)}mb "
-            title += f"USED: {int(to_used/1000000)}mb FREE: {int(to_free/1000000)}mb"
+            title += f" | DESTINATION DIR SIZE: {int(to_total/1000000)}mb | "
+            title += f"USED: {int(to_used/1000000)}mb | FREE: {int(to_free/1000000)}mb"
 
         self.setWindowTitle(title)
 
@@ -354,7 +370,9 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             webp_save_path = f'{tmp_folder}/{filename}.webp'
             webp_save_path = os.path.abspath(os.path.expanduser(webp_save_path))
 
-            jobs.append((jpeg_image_path, webp_save_path, outputpath, self.webp_slider.value()))
+            jobs.append(
+                (jpeg_image_path, webp_save_path, outputpath, self.webp_slider.value(), self.check_4k.isChecked(),)
+            )
 
         if not self.wepb_threads.isChecked():
             for i in jobs:
