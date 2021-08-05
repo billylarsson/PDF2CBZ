@@ -48,13 +48,16 @@ class VerticalLabel(QtWidgets.QWidget):
         self.setGeometry(0, 0, place.width(), place.height())
         self.show()
 
-    def paintEvent(self, event):
+    def draw(self):
         painter = QtGui.QPainter(self)
         painter.setPen(QtCore.Qt.white)
         painter.rotate(-90)
         half_width = int(self.parent.width() / 2) + 7
         painter.drawText(half_width - self.parent.height() - 5, half_width, self.text)
         painter.end()
+
+    def paintEvent(self, event):
+        self.draw()
 
 class PDFWidget(GOD):
     def make_labels(self):
@@ -74,7 +77,7 @@ class PDFWidget(GOD):
         self.size_label.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
         filesize = os.path.getsize(self.data['path'])
         filesize = filesize / 1000000
-        filesize = round(filesize, 2)
+        filesize = int(filesize)
 
         page_count = self.main.get_page_count_for_pdf(self.data['path'])
         if page_count:
@@ -119,7 +122,7 @@ class PDFWidget(GOD):
         self.pdf_label.show()
 
         # VERTICAL LABEL
-        self.vetical_label = VerticalLabel(self.pdf_label, self.main, self.data['extension'])
+        self.set_vertical_label(self.data['extension'])
 
         # STATUS LABEL
         self.status_label = QtWidgets.QLabel(self)
@@ -192,13 +195,20 @@ class PDFWidget(GOD):
         if delete:
             shutil.rmtree(tmp_folder)
 
+    def set_vertical_label(self, ext='CBZ'):
+        if 'vetical_label' in dir(self):
+            self.vetical_label.close()
+
+        self.vetical_label = VerticalLabel(self.pdf_label, self.main, ext)
+
     def preprocess_file(self):
         if self.data['processed']:
             return
 
         self.status_label.setText('PROCESSING')
         self.status_label.setStyleSheet('background-color: magenta ; color: white')
-        t.start_thread(self.main.dummy, finished_function=self.process_file)
+        t.start_thread(self.main.dummy)
+        t.start_thread(self.process_file, finished_function=self.set_vertical_label)
 
     def process_file(self):
         """
@@ -207,10 +217,6 @@ class PDFWidget(GOD):
         will be deleted and self.data['processed'] will be set to True
         :return: bool
         """
-
-        if self.data['processed']:
-            return
-
         def error(self, text, stylesheet='background-color: red ; color: white'):
             self.status_label.setText(text)
             self.status_label.setStyleSheet(stylesheet)
@@ -280,14 +286,11 @@ class PDFWidget(GOD):
             self.status_label.setText('PROCESSED')
             self.status_label.setStyleSheet('background-color: green ; color: white')
 
-            self.vetical_label.close()
-            self.vetical_label = VerticalLabel(self.pdf_label, self.main, 'CBZ')
-
             self.name_label.setToolTip(rv['outputpath'])
 
             filesize = os.path.getsize(rv['outputpath'])
             filesize = filesize / 1000000
-            filesize = round(filesize, 2)
+            filesize = int(filesize)
             self.size_label.setText(str(self.size_label.text()) + ' to ' + str(filesize) + 'MB')
 
             query, values = sqlite.empty_insert_query(table='files')
@@ -302,7 +305,12 @@ class PDFWidget(GOD):
             self.status_label.setText('HDD FULL')
             self.status_label.setStyleSheet('background-color: red ; color: black')
 
-        if not self.load_next_job() and self.main.continous_convertion.isChecked():
+        if self.main.continous_convertion.isChecked():
+            for i in self.main.widgets['main']:
+                if not i.data['processed']:
+                    self.load_next_job()
+                    return True
+
             self.main.draw_more_pdf_files()
             self.load_next_job()
 
@@ -315,9 +323,7 @@ class PDFWidget(GOD):
         if self.main.continous_convertion.isChecked():
             for i in self.main.widgets['main']:
                 if not i.data['processed']:
-                    i.status_label.setText('PROCESSING')
-                    i.status_label.setStyleSheet('background-color: magenta ; color: white')
-                    t.start_thread(self.main.dummy, finished_function=i.process_file)
+                    i.preprocess_file()
                     return True
 
     def mousePressEvent(self, ev: QtGui.QMouseEvent) -> None:

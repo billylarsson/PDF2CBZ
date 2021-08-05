@@ -565,8 +565,9 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         :return: integer or False
         """
         poppler_path = self.get_poppler_path()
-        if platform.system() == "Windows" and not poppler_path:
-            return False
+        if platform.system() == "Windows":
+            if not poppler_path or not os.path.exists(poppler_path) or len(poppler_path) < 1:
+                return False
 
         rv = pdfinfo_from_path(path, poppler_path=poppler_path)
 
