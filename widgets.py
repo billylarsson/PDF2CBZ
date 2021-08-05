@@ -75,7 +75,13 @@ class PDFWidget(GOD):
         filesize = os.path.getsize(self.data['path'])
         filesize = filesize / 1000000
         filesize = round(filesize, 2)
-        self.size_label.setText(str(filesize) + 'MB')
+
+        page_count = self.main.get_page_count_for_pdf(self.data['path'])
+        if page_count:
+            self.size_label.setText(f"{page_count} PAGES / {filesize} MB")
+        else:
+            self.size_label.setText(str(filesize) + 'MB')
+
         self.size_label.show()
 
         # NAME LABEL
@@ -144,6 +150,13 @@ class PDFWidget(GOD):
         self.make_labels()
         self.setStyleSheet('background-color: rgb(180,180,180)')
 
+    def set_cover_details_instead(self, file):
+        _pixmap = QPixmap(file)
+        pixels_size = f"{_pixmap.width()} x {_pixmap.height()}"
+        fsize = os.path.getsize(file) / 1000000
+        fsize = round(fsize, 2)
+        self.name_label.setText(f"COVER: {fsize}MB {pixels_size}")
+
     def set_pixmap(self, tmp_folder, delete=False):
         """
         pixmap is set first AFTER the file has been completly processed
@@ -153,11 +166,10 @@ class PDFWidget(GOD):
             return False
 
         if 'pixmap_label' in dir(self):
-            return
+            return False
 
         self.pixmap_label = QtWidgets.QLabel(self)
         self.pixmap_label.setGeometry(1, 1, self.width() - 2, self.status_label.geometry().top() - 2)
-        self.pixmap_label.show()
 
         for walk in os.walk(tmp_folder):
             files = [walk[0] + '/' + x for x in walk[2]]
@@ -171,8 +183,10 @@ class PDFWidget(GOD):
             pixmap = QPixmap(
                 files[0]).scaled(w, h, transformMode=QtCore.Qt.SmoothTransformation
             )
-
             self.pixmap_label.setPixmap(pixmap)
+            self.set_cover_details_instead(files[0])
+
+            self.pixmap_label.show()
             break
 
         if delete:

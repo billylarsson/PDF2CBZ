@@ -315,6 +315,14 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         self.show_hdd_spaces()
 
     def show_hdd_spaces(self):
+        if 'space_timer' not in dir(self):
+            self.space_timer = int(time.time() - 100)
+
+        if int(time.time()) - self.space_timer < 1:
+            return
+
+        self.space_timer = int(time.time())
+
         title = 'PDF to WEBP-compressed CBZ v0.2 build:667'
 
         base_dir = t.tmp_folder(create_dir=False, return_base=True)
@@ -333,8 +341,9 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
 
     def get_poppler_path(self):
         poppler_path = self.poppler_path.toPlainText().strip()
-        if not os.path.exists(poppler_path):
+        if not poppler_path or not os.path.exists(poppler_path) or len(poppler_path) < 1:
             poppler_path = None
+
         return poppler_path
 
     def convert_pdf_to_images(self, inputpath, outputpath):
@@ -467,7 +476,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         """
         draws widgets from self.pdf_files, if present
         """
-        def thread_extract_image(widget, tmp_folder):
+        def thread_extract_image(self, widget, tmp_folder):
             pdf_to_jpeg((widget.data['path'], tmp_folder, 0, 1, 'Cover', self.get_poppler_path()))
 
         if 'pdf_files' not in dir(self):
@@ -476,6 +485,9 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         for path in self.pdf_files:
             if self.figure_height + self.pdf_ht > self.canvas.height():
                 break
+
+            if platform.system() == "Windows" and not self.get_poppler_path():
+                continue
 
             if self.pdf_files[path]['drawn']:
                 continue
@@ -492,7 +504,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
 
             tmp_folder = t.tmp_folder()
             t.start_thread(
-                thread_extract_image, worker_arguments=(widget, tmp_folder,),
+                thread_extract_image, worker_arguments=(self, widget, tmp_folder,),
                 finished_function=widget.set_pixmap, finished_arguments=(tmp_folder, True,),
                 threads=4, name='refresh'
             )
@@ -553,6 +565,8 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         :return: integer or False
         """
         poppler_path = self.get_poppler_path()
+        if platform.system() == "Windows" and not poppler_path:
+            return False
 
         rv = pdfinfo_from_path(path, poppler_path=poppler_path)
 

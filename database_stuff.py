@@ -318,7 +318,6 @@ class DB:
         poppler_path = sqlite.db_sqlite('settings', 'poppler_path')
         resize_4k = sqlite.db_sqlite('settings', 'resize_4k', 'integer')
 
-
     class files:
         local_path = sqlite.db_sqlite('files', 'local_path')
         md5 = sqlite.db_sqlite('files', 'md5')
