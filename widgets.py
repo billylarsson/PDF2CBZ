@@ -224,12 +224,6 @@ class PDFWidget(GOD):
 
         self.data['processed'] = True
 
-        md5 = t.md5_hash_file(self.data['path'])
-        data = sqlite.ro('select * from files where md5 = (?)', md5)
-        if data:
-            error(self, 'FILE ALREADY PROCESSED')
-            return False
-
         to_dir = self.main.to_dir.toPlainText()
         filename = self.data['filename']
 
@@ -250,6 +244,12 @@ class PDFWidget(GOD):
 
         outputpath = to_dir + '/' + filename + '.cbz'
         outputpath = os.path.abspath(os.path.expanduser(outputpath))
+
+        md5 = t.md5_hash_file(self.data['path'])
+        data = sqlite.ro('select * from files where md5 = (?)', md5)
+        if data and os.path.exists(outputpath) and os.path.getsize(outputpath) > 0:
+            error(self, 'FILE ALREADY PROCESSED')
+            return False
 
         if os.path.exists(outputpath) and os.path.getsize(outputpath) > 0:
             error(self, 'DESTINATION EXISTS', 'background-color: green ; color: white')
