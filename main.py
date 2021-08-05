@@ -492,10 +492,6 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             if self.pdf_files[path]['drawn']:
                 continue
 
-            data = sqlite.ro('select * from files where local_path = (?)', path)
-            if data:
-                continue
-
             self.pdf_files[path]['drawn'] = True
             widget = PDFWidget(self.canvas, self, type='PDF')
             self.widgets['main'].append(widget)
@@ -593,21 +589,19 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             i = os.path.abspath(os.path.expanduser(i))
 
             if platform.system() == "Windows":
-                filename = i.split('\\')
+                full_filename = i.split('\\')
             else:
-                filename = i.split('/')
+                full_filename = i.split('/')
 
-            filename = filename[-1].split('.')
+            full_filename = full_filename[-1]
 
-            if len(filename[-1]) < 5:
-                extension = filename[-1].upper()
-            else:
-                extension = 'EXT'
+            extension = full_filename.split('.')
+            extension = extension[-1]
+            extension = extension.upper()
 
-            if len(filename) > 1:
-                filename = filename[-2]
-            else:
-                filename = i
+            filename = full_filename.split('.')
+            filename.pop(-1)
+            filename = '.'.join(filename)
 
             rdict[i] = dict(
                 path=i,

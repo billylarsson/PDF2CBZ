@@ -343,10 +343,13 @@ class PDFWidget(GOD):
 
         elif ev.button() == 2:
             menu = QtWidgets.QMenu()
+            process_file = False
             if self.data['processed'] and os.path.exists(self.data['path']):
                 process_file = menu.addAction('RE-PROCESS FILE (may fail)')
-            else:
+            elif os.path.exists(self.data['path']):
                 process_file = menu.addAction('PROCESS FILE')
+            else:
+                menu.addAction('FILE GONE!')
 
             menu.addSeparator()
 
