@@ -660,6 +660,8 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         if os.path.exists(text):
             sqlite.w('update settings set destination_path = (?) where id is 1', text)
 
-app = QtWidgets.QApplication(sys.argv)
-window = PDF2CBZmain()
-app.exec_()
+
+if __name__ == "__main__":
+    app = QtWidgets.QApplication(sys.argv)
+    window = PDF2CBZmain()
+    app.exec_()
