@@ -97,7 +97,6 @@ class PDFWidget(GOD):
         self.name_label.setGeometry(x, y, self.size_label.width(), SIZE)
         self.name_label.setStyleSheet('background-color: blue')
         self.name_label.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
-        self.name_label.setToolTip(self.data['path'])
         self.name_label.show()
 
         filename = self.data['filename']
@@ -154,7 +153,10 @@ class PDFWidget(GOD):
         """
         self.set_position()
         self.make_labels()
-        self.setStyleSheet('background-color: rgb(180,180,180)')
+        frame_style = 'QFrame {background-color: rgb(180,180,180)}'
+        tooltip_style = 'QToolTip {background-color: white ; color: black ; border: black}'
+        self.setStyleSheet(frame_style + tooltip_style)
+        self.setToolTip(self.data['path'])
 
     def set_cover_details_instead(self, file):
         _pixmap = QPixmap(file)
@@ -278,7 +280,7 @@ class PDFWidget(GOD):
             error(self, 'PERMISSION ERROR')
             return False
 
-        rv = self.main.convert_pdf_to_images(inputpath=self.data['path'], outputpath=outputpath)
+        rv = self.main.convert_pdf_to_images(inputpath=self.data['path'], outputpath=outputpath, widget=self)
 
         if rv['status']:
             self.set_pixmap(rv['tmp_webp_folder'])

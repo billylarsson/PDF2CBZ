@@ -346,7 +346,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
 
         return poppler_path
 
-    def convert_pdf_to_images(self, inputpath, outputpath):
+    def convert_pdf_to_images(self, inputpath, outputpath, widget):
         """
         if large pdf job is spread across cpu's else just one cpu-job
         extract jpeg files into a tmp_folder and then convert them to webp
@@ -361,6 +361,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
 
         poppler_path = self.get_poppler_path()
 
+        widget.status_label.setText('EXTRACTING')
         if self.pdf_threads.isChecked():
             rv = self.decide_pages_per_cpu(inputpath)
             if rv:
@@ -383,12 +384,14 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
                 (jpeg_image_path, webp_save_path, outputpath, self.webp_slider.value(), self.check_4k.isChecked(),)
             )
 
+        widget.status_label.setText('CONVERTING')
         if not self.wepb_threads.isChecked():
             for i in jobs:
                 convert_files_to_webp(i)
         else:
             convert_files_to_webp(jobs, self.show_hdd_spaces)
 
+        widget.status_label.setText('RECOMPRESSING')
         rv = recompress_fucntion(outputpath, tmp_folder)
 
         return dict(status=rv, tmp_webp_folder=tmp_folder, tmp_jpeg_folder=tmp_jpeg_folder, outputpath=outputpath)
