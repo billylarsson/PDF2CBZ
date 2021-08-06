@@ -16,4 +16,6 @@ Enter destination path where the CBZ-files shall be stored
 Start converting by clicking the files you want to convert and they will added to the convertion que.
 Program built to optimize speed, all CPU's are used.
 
+If "Continous" checkbox is checked, new jobs will be automaticall added untill all PDF-files from the source path are converted.
+
 File naming will be same as input(-PDF) + CBZ
