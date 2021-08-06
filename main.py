@@ -622,6 +622,10 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         text = self.poppler_path.toPlainText().strip()
         if os.path.exists(text):
             sqlite.w('update settings set poppler_path = (?) where id is 1', text)
+            if platform.system() == 'Windows':
+                os.environ["PATH"] += ';' + text
+            else:
+                os.environ["PATH"] += ':' + text
 
     def reset_ht_wt(self):
         self.pdf_wt = 3
