@@ -50,7 +50,10 @@ class VerticalLabel(QtWidgets.QWidget):
 
     def draw(self):
         painter = QtGui.QPainter(self)
-        painter.setPen(QtCore.Qt.white)
+        if self.text == 'PDF':
+            painter.setPen(QtCore.Qt.gray)
+        else:
+            painter.setPen(QtCore.Qt.lightGray)
         painter.rotate(-90)
         half_width = int(self.parent.width() / 2) + 7
         painter.drawText(half_width - self.parent.height() - 5, half_width, self.text)
@@ -70,9 +73,9 @@ class PDFWidget(GOD):
 
         # SIZE LABEL
         self.size_label = QtWidgets.QLabel(self)
-        y = self.height() - SIZE - 3
+        y = self.height() - SIZE - 1
         x = int(self.width() * 0.1)
-        self.size_label.setGeometry(x, y, self.width(), SIZE)
+        self.size_label.setGeometry(x, y, self.width() - x - 1, SIZE)
         self.size_label.setStyleSheet('background-color: rgb(20,20,170)')
         self.size_label.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
         filesize = os.path.getsize(self.data['path'])
@@ -89,9 +92,9 @@ class PDFWidget(GOD):
 
         # NAME LABEL
         self.name_label = QtWidgets.QLabel(self)
-        y = self.size_label.geometry().top() - SIZE - 3
+        y = self.size_label.geometry().top() - SIZE - 1
         x = int(self.width() * 0.1)
-        self.name_label.setGeometry(x, y, self.width() - x, SIZE)
+        self.name_label.setGeometry(x, y, self.size_label.width(), SIZE)
         self.name_label.setStyleSheet('background-color: blue')
         self.name_label.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
         self.name_label.setToolTip(self.data['path'])
@@ -115,10 +118,10 @@ class PDFWidget(GOD):
 
         # EXTENSION LABEL
         self.pdf_label = QtWidgets.QLabel(self)
-        h = self.height() - self.name_label.geometry().top() - 3
+        h = self.height() - self.name_label.geometry().top() - 1
         w = self.name_label.geometry().left()
-        self.pdf_label.setGeometry(0, self.name_label.geometry().top(), w, h)
-        self.pdf_label.setStyleSheet('background-color: black ; color: white')
+        self.pdf_label.setGeometry(1, self.name_label.geometry().top(), w - 2, h)
+        self.pdf_label.setStyleSheet('background-color: rgb(30,30,130) ; color: white')
         self.pdf_label.show()
 
         # VERTICAL LABEL
@@ -130,7 +133,7 @@ class PDFWidget(GOD):
         self.status_label.setText(self.data['status'].upper())
         self.status_label.show()
         h = self.status_label.height()
-        y = self.name_label.geometry().top() - 3 - h
+        y = self.name_label.geometry().top() - 1 - h
         self.status_label.setGeometry(0, y, self.width(), h)
         self.status_label.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
 
@@ -205,8 +208,8 @@ class PDFWidget(GOD):
         if self.data['processed']:
             return
 
-        self.status_label.setText('PROCESSING')
-        self.status_label.setStyleSheet('background-color: magenta ; color: white')
+        self.status_label.setText('QUEUED')
+        self.status_label.setStyleSheet('background-color: darkMagenta ; color: white')
         t.start_thread(self.main.dummy)
         t.start_thread(self.process_file, finished_function=self.set_vertical_label)
 
@@ -223,6 +226,9 @@ class PDFWidget(GOD):
             self.load_next_job()
 
         self.data['processed'] = True
+
+        self.status_label.setText('PROCESSING')
+        self.status_label.setStyleSheet('background-color: magenta ; color: white')
 
         to_dir = self.main.to_dir.toPlainText()
         filename = self.data['filename']
@@ -344,6 +350,7 @@ class PDFWidget(GOD):
         elif ev.button() == 2:
             menu = QtWidgets.QMenu()
             process_file = False
+
             if self.data['processed'] and os.path.exists(self.data['path']):
                 process_file = menu.addAction('RE-PROCESS FILE (may fail)')
             elif os.path.exists(self.data['path']):

@@ -620,7 +620,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         triggers if the texts in the plaintextedit is an actuall path
         """
         text = self.poppler_path.toPlainText().strip()
-        if os.path.exists(text):
+        if len(text) > 0 and os.path.exists(text):
             sqlite.w('update settings set poppler_path = (?) where id is 1', text)
             if platform.system() == 'Windows':
                 os.environ["PATH"] += ';' + text
