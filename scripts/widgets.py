@@ -8,6 +8,7 @@ import os
 import pathlib
 import random
 import shutil
+import time
 
 class GOD(QtWidgets.QFrame):
     def __init__(self, place, main, type=None, show=True):
@@ -29,7 +30,7 @@ class DevLabel(QtWidgets.QLabel):
         self.setStyleSheet('background-color: rgba(0,0,0,0)')
     def mousePressEvent(self, ev: QtGui.QMouseEvent) -> None:
         if ev.button() == 1:
-            pass
+            self.main.show_hdd_spaces()
         elif ev.button() == 2:
             menu = QtWidgets.QMenu()
             yes_store_covers = menu.addAction('Store covers in database (quicker browsing, larger database)')
@@ -134,7 +135,7 @@ class PDFWidget(GOD):
         self.status_label.setStyleSheet('background-color: black ; color: white ; font: 8pt')
         self.status_label.setText(self.data['status'].upper())
         self.status_label.show()
-        h = self.status_label.height()
+        h = self.status_label.height() + 2
         y = self.name_label.geometry().top() - 1 - h
         self.status_label.setGeometry(0, y, self.width(), h)
         self.status_label.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
@@ -215,15 +216,72 @@ class PDFWidget(GOD):
 
         self.vetical_label = VerticalLabel(self.pdf_label, self.main, ext)
 
+    def change_process_label(self, label, label_bck, current, total):
+        max = self.width() - 4
+
+        if 'process_ticker' not in dir(self):
+            self.process_ticker = {}
+
+        if label not in self.process_ticker:
+            self.process_ticker.update({label: time.time() - 2})
+
+        if current == total:
+            value = max
+        elif  current == total - 1:
+            return
+        elif time.time() - 0.5 > self.process_ticker[label]:
+            self.process_ticker[label] = time.time()
+            value = current / total
+            value = int(max * value)
+            if value > max:
+                value = max
+        else:
+            return
+
+        if label.geometry().right() >= max:
+            return
+
+        label.setGeometry(label.geometry().left(), label.geometry().top(), value, label.height())
+        label_bck.setGeometry(label.geometry().left()-1, label.geometry().top()-1, label.width()+2, label.height()+2)
+
+    def change_process_label_one(self, current, total):
+        self.change_process_label(self.progress_label_one, self.backlabel_one, current=current, total=total)
+
+    def change_process_label_two(self, current, total):
+        self.change_process_label(self.progress_label_two, self.backlabel_two, current=current, total=total)
+
     def preprocess_file(self):
         if self.data['processed']:
             return
 
         self.data['processed'] = True
+        self.data['work'] = True
         self.status_label.setText('QUEUED')
         self.status_label.setStyleSheet('background-color: darkMagenta ; color: white')
+        y = self.status_label.geometry().top()
+        self.status_label.setGeometry(1,y+1, self.width() - 2, self.status_label.height()-1)
+
+        self.backlabel_one = QtWidgets.QLabel(self, styleSheet='background-color: black')
+        self.backlabel_two = QtWidgets.QLabel(self, styleSheet='background-color: black')
+
+        self.progress_label_one = QtWidgets.QLabel(self)
+        y = self.status_label.geometry().top() - 7
+        self.progress_label_one.setGeometry(2, y, 0, 5)
+        self.progress_label_one.setStyleSheet('background-color: darkCyan')
+
+        self.progress_label_two = QtWidgets.QLabel(self)
+        y = self.progress_label_one.geometry().top() - 6
+        self.progress_label_two.setGeometry(2, y, 0, 5)
+        self.progress_label_two.setStyleSheet('background-color: lightBlue')
+
+        c = {self.backlabel_one: self.progress_label_one, self.backlabel_two: self.progress_label_two}
+        for i,j in c.items():
+            i.setGeometry(i.geometry().left() - 1, i.geometry().top() - 1, 0 ,j.height() + 2)
+            i.show()
+            j.show()
+
         t.start_thread(self.main.dummy, worker_arguments=0.1)
-        t.start_thread(self.process_file, finished_function=self.set_vertical_label)
+        t.start_thread(self.process_file, finished_function=[self.set_vertical_label, self.load_next_job])
 
     def process_file(self):
         """
@@ -235,7 +293,6 @@ class PDFWidget(GOD):
         def error(self, text, stylesheet='background-color: red ; color: white'):
             self.status_label.setText(text)
             self.status_label.setStyleSheet(stylesheet)
-            self.load_next_job()
 
         self.status_label.setText('PROCESSING')
         self.status_label.setStyleSheet('background-color: magenta ; color: white')
@@ -292,6 +349,7 @@ class PDFWidget(GOD):
             return False
 
         rv = self.main.convert_pdf_to_images(inputpath=self.data['path'], outputpath=outputpath, widget=self)
+        self.data['work'] = False
 
         if rv['status']:
             self.set_pixmap(rv['tmp_webp_folder'])
@@ -321,26 +379,24 @@ class PDFWidget(GOD):
             self.status_label.setText('HDD FULL')
             self.status_label.setStyleSheet('background-color: red ; color: black')
 
-        if self.main.continous_convertion.isChecked():
-            for i in self.main.widgets['main']:
-                if not i.data['processed']:
-                    self.load_next_job()
-                    return True
-
-            self.main.draw_more_pdf_files()
-            self.load_next_job()
-
     def load_next_job(self):
         """
         if self.main.continous_convertion is checked another
         job is added as long as there are files to job from
         """
-        random.shuffle(self.main.widgets['main'])
-        if self.main.continous_convertion.isChecked():
-            for i in self.main.widgets['main']:
-                if not i.data['processed']:
-                    i.preprocess_file()
-                    return True
+        for count in range(3):
+            random.shuffle(self.main.widgets['main'])
+            if self.main.continous_convertion.isChecked():
+                for i in self.main.widgets['main']:
+                    if count == 0 and i.status_label.text() == 'QUEUED':
+                        return
+
+                    if count > 0 and not i.data['processed']:
+                        i.preprocess_file()
+                        return True
+
+                if count == 1:
+                    self.main.draw_more_pdf_files()
 
     def mousePressEvent(self, ev: QtGui.QMouseEvent) -> None:
         class ShadeLabel(QtWidgets.QLabel):

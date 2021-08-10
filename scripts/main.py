@@ -1,12 +1,12 @@
-from PIL            import Image
-from PyQt5          import QtCore, QtWidgets
-from PyQt5.QtGui    import QPixmap
+from PIL                    import Image
+from PyQt5                  import QtCore, QtWidgets
+from PyQt5.QtGui            import QPixmap
+from functools              import partial
+from pdf2image              import convert_from_path, pdfinfo_from_path
 from scripts.database_stuff import DB, sqlite
-from functools      import partial
-from pdf2image      import convert_from_path, pdfinfo_from_path
 from scripts.tricks         import tech as t
 from scripts.widgets        import DevLabel, PDFWidget
-from zipfile        import BadZipFile, ZipFile
+from zipfile                import BadZipFile, ZipFile
 import concurrent.futures
 import math
 import os
@@ -19,6 +19,7 @@ import time
 
 
 FIGURE_HEIGHT = 300
+TITLE = 'PDF to WEBP-compressed CBZ v0.3 build:776'
 
 def pdf_to_jpeg(job):
     """
@@ -26,7 +27,6 @@ def pdf_to_jpeg(job):
     :param job: tuple
     :return: list with paths as strings
     """
-
     source_file, output_folder, first_page, last_page, output_file, poppler_path = job
 
     image_list = convert_from_path(
@@ -41,8 +41,9 @@ def pdf_to_jpeg(job):
         jpegopt=dict(quality=100, optimize=True),
         poppler_path=poppler_path,
     )
+
     return image_list
-def convert_files_to_jpeg(joblist, inputpath, tmp_jpeg_folder, poppler_path=None, show_hdd_space=None):
+def convert_files_to_jpeg(joblist, inputpath, tmp_jpeg_folder, poppler_path=None, show_status=None):
     """
     if tmp_folder goes below 100mb False is returned
     :param joblist: dictionary with letters as keys containing list indexes (int)
@@ -52,18 +53,38 @@ def convert_files_to_jpeg(joblist, inputpath, tmp_jpeg_folder, poppler_path=None
     """
     image_list = []
     threadlist = []
+    pagecount = -1
     for letter in joblist:
         threadlist.append((inputpath, tmp_jpeg_folder, joblist[letter][0], joblist[letter][-1], letter, poppler_path,))
+
+        if show_status and joblist[letter][-1] > pagecount:
+            pagecount = joblist[letter][-1]
+
+    if show_status and pagecount > -1:
+        def draw_pdf_to_jpeg_status(check=0):
+            time.sleep(0.5)
+
+            if not os.path.exists(tmp_jpeg_folder):
+                return
+
+            for walk in os.walk(tmp_jpeg_folder):
+
+                if len(walk[2]) < check:
+                    return
+
+                show_status(current=len(walk[2]), total=pagecount)
+                if len(walk[2]) != pagecount:
+                    draw_pdf_to_jpeg_status(len(walk[2]))
+                break
+
+        t.start_thread(draw_pdf_to_jpeg_status, name='process_label_one', threads=1)
 
     with concurrent.futures.ProcessPoolExecutor() as executor:
         for _, rv in zip(joblist, executor.map(pdf_to_jpeg, threadlist)):
             for path in rv:
                 image_list.append(path)
 
-            if show_hdd_space:
-                show_hdd_space()
-
-            _, _, tmp_free = shutil.disk_usage(tmp_jpeg_folder)
+            _, __, tmp_free = shutil.disk_usage(tmp_jpeg_folder)
             if (tmp_free/1000000) < 100:
                 return False
 
@@ -85,19 +106,20 @@ def jpeg_to_webp(job):
 
     image.save(destination_path, 'webp', method=6, quality=webp_quality)
     return dict(source=source_path, destination=destination_path)
-def convert_files_to_webp(joblist, show_hdd_space=None):
+def convert_files_to_webp(joblist, show_status=None):
     """
     :param joblist: list with jpeg_files
     :return:
     """
+    count = 0
     with concurrent.futures.ProcessPoolExecutor() as executor:
         for _, rv in zip(joblist, executor.map(jpeg_to_webp, joblist)):
-
+            count += 1
             if rv and os.path.getsize(rv['destination']) > 0:
                 os.remove(rv['source'])
 
-            if show_hdd_space:
-                show_hdd_space()
+            if show_status:
+                show_status(current=count, total=len(joblist))
 
 def recompress_fucntion(destination_file, tmp_folder):
     """
@@ -161,7 +183,6 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
     def __init__(self):
         super(PDF2CBZmain, self).__init__()
 
-        self.setWindowTitle('PDF to WEBP-compressed CBZ v0.2 build:667')
         self.setStyleSheet('background-color: rgb(20,20,20) ; color: rgb(255,255,255)')
 
         if 'devmode' in sys.argv:
@@ -313,7 +334,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             if rv:
                 label.setPlainText(rv.rstrip('\n'))
 
-        self.show_hdd_spaces()
+        self.setWindowTitle(TITLE)
 
     def show_hdd_spaces(self):
         if 'space_timer' not in dir(self):
@@ -324,7 +345,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
 
         self.space_timer = int(time.time())
 
-        title = 'PDF to WEBP-compressed CBZ v0.2 build:667'
+        title = TITLE
 
         base_dir = t.tmp_folder(create_dir=False, return_base=True)
         if os.path.exists(base_dir):
@@ -358,15 +379,15 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         tmp_jpeg_folder = t.tmp_folder(inputpath, hash=True, delete=True)
         tmp_folder = t.tmp_folder(outputpath, hash=True, delete=True)
 
-        image_list = None
+        image_list = []
 
         poppler_path = self.get_poppler_path()
-
         widget.status_label.setText('EXTRACTING')
         if self.pdf_threads.isChecked():
             rv = self.decide_pages_per_cpu(inputpath)
             if rv:
-                image_list = convert_files_to_jpeg(rv, inputpath, tmp_jpeg_folder, poppler_path, self.show_hdd_spaces)
+                image_list = convert_files_to_jpeg(
+                    rv, inputpath, tmp_jpeg_folder, poppler_path, widget.change_process_label_one)
 
         if not image_list:
             image_list = pdf_to_jpeg((inputpath, tmp_jpeg_folder, None, None, None, poppler_path,))
@@ -388,9 +409,9 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         widget.status_label.setText('CONVERTING')
         if not self.wepb_threads.isChecked():
             for i in jobs:
-                convert_files_to_webp(i)
+                convert_files_to_webp(i, widget.change_process_label_two)
         else:
-            convert_files_to_webp(jobs, self.show_hdd_spaces)
+            convert_files_to_webp(jobs, widget.change_process_label_two)
 
         widget.status_label.setText('RECOMPRESSING')
         rv = recompress_fucntion(outputpath, tmp_folder)
@@ -514,6 +535,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             self.widgets['main'].append(widget)
             widget.data = self.pdf_files[path]
             widget.data['md5'] = md5
+            widget.data['work'] = False
             widget.post_init()
 
             rv = sqlite.ro('select * from files where md5 = (?)', md5)
@@ -624,6 +646,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         else:
             rdict = {}
 
+        all_files.sort()
         for i in all_files:
             count = len(rdict) + 1
             i = os.path.abspath(os.path.expanduser(i))
@@ -674,9 +697,18 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         self.cbz_wt = 3
         self.cbz_ht = 3
 
+    def draw_workers(self):
+        for key in self.widgets:
+            for count in range(len(self.widgets[key]) - 1, -1, -1):
+                widget = self.widgets[key][count]
+                widget.set_position()
+
     def reset_widgets(self, widgets=None, all=False):
         def close_and_pop(self, key):
-            for count in range(len(self.widgets[key]) - 1, -1, -1):
+            for count in range(len(self.widgets[key]) -1, -1, -1):
+                if self.widgets[key][count].data['work']:
+                    continue
+
                 self.widgets[key][count].close()
                 self.widgets[key].pop(count)
 
@@ -688,6 +720,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             close_and_pop(self, widgets)
 
         self.reset_ht_wt()
+        self.draw_workers()
 
     def save_setting(self, widget, setting_var):
         widget_type = widget.metaObject().className()
