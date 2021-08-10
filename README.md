@@ -5,7 +5,7 @@ Converts PDF to WEBP Images that are put together into a CBZ file (essentially a
 Preparations:
 pip install -r requirements.txt --user
 
-Start the program by running: python main.py
+Start the program by running: python launcher.py
 
 Assigning correct poppler path example: c:\Program Files\poppler-0.68.0\bin\
 Compiled Poppler for Windows can be downloaded here: http://blog.alivate.com.au/poppler-windows/
@@ -19,3 +19,5 @@ Program built to optimize speed, all CPU's are used.
 If "Continous" checkbox is checked, new jobs will be automaticall added untill all PDF-files from the source path are converted.
 
 File naming will be same as input(-PDF) + CBZ
+
+** I cannot afford a copy of Windows or MacOS hardware, therefore support for those are limited.
