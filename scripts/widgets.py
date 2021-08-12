@@ -227,8 +227,6 @@ class PDFWidget(GOD):
 
         if current == total:
             value = max
-        elif  current == total - 1:
-            return
         elif time.time() - 0.5 > self.process_ticker[label]:
             self.process_ticker[label] = time.time()
             value = current / total
@@ -241,6 +239,9 @@ class PDFWidget(GOD):
         if label.geometry().right() >= max:
             return
 
+        elif label.geometry().right() >= value:
+            return
+
         label.setGeometry(label.geometry().left(), label.geometry().top(), value, label.height())
         label_bck.setGeometry(label.geometry().left()-1, label.geometry().top()-1, label.width()+2, label.height()+2)
 
@@ -250,12 +251,84 @@ class PDFWidget(GOD):
     def change_process_label_two(self, current, total):
         self.change_process_label(self.progress_label_two, self.backlabel_two, current=current, total=total)
 
+    def pre_thread_show_progress(self):
+        """
+        '''
+        every 0.5s the thread is counting the files in the working directories
+        and making progresslabels relative to that percentage once self.data['work']
+        is set to False the thread exits.
+        '''
+        if 'ERROR' in self.data self.status_label text and stylesheet are set here
+        """
+        def inactive_job_thread_killer(self, checker):
+            """
+            as long as the filecount is changing thread stays alive but once filecount
+            is unchanged and one minute have passed Ceasar gives a thumb down
+            :param checker [jpeg-files and webp-files9]
+            """
+            if 'inactive_checker' not in dir(self):
+                self.inactive_checker = dict(time=time.time() - 1, checklist=checker)
+
+            if checker != self.inactive_checker['checklist']:
+                self.inactive_checker = dict(time=time.time() - 1, checklist=checker)
+                return True
+
+            elif time.time() - self.inactive_checker['time'] < 60:
+                self.inactive_checker = dict(time=time.time() - 1, checklist=checker)
+                return True
+            else:
+                print("KILLING THREAD!")
+
+        if self.data['error']:
+            self.status_label.setText(self.data['error']['text'])
+            self.status_label.setStyleSheet(self.data['error']['style'])
+            return
+
+        inputpath, outputpath = self.generate_dirs()
+        tmp_jpeg = t.tmp_folder(inputpath, hash=True, create_dir=False, reuse=True)
+        tmp_webp = t.tmp_folder(outputpath, hash=True, create_dir=False, reuse=True)
+
+        if 'page_count' not in dir(self):
+            self.page_count = self.main.get_page_count_for_pdf(inputpath)
+
+        if not self.page_count:
+            return
+
+        if not self.data['work']:
+            if os.path.exists(outputpath):
+                self.change_process_label_one(current=1, total=1)
+                self.change_process_label_two(current=1, total=1)
+            return
+
+        check_file_list = []
+        for path, fn in {tmp_jpeg: self.change_process_label_one, tmp_webp: self.change_process_label_two}.items():
+            if os.path.exists(path):
+                for walk in os.walk(path):
+                    filecount = len(walk[2])
+                    if filecount > 0:
+                        fn(current=filecount, total=self.page_count)
+                    check_file_list += walk[2]
+                    break
+
+        if not inactive_job_thread_killer(self, check_file_list):
+            return
+
+        t.start_thread(self.main.dummy,
+                       worker_arguments=0.5,
+                       finished_function=self.pre_thread_show_progress,
+                       name='gui', priority=1,
+                       )
+
+
+
     def preprocess_file(self):
         if self.data['processed']:
             return
 
         self.data['processed'] = True
         self.data['work'] = True
+        self.data['error'] = False
+
         self.status_label.setText('QUEUED')
         self.status_label.setStyleSheet('background-color: darkMagenta ; color: white')
         y = self.status_label.geometry().top()
@@ -282,6 +355,18 @@ class PDFWidget(GOD):
 
         t.start_thread(self.main.dummy, worker_arguments=0.1)
         t.start_thread(self.process_file, finished_function=[self.set_vertical_label, self.load_next_job])
+        self.pre_thread_show_progress()
+
+    def generate_dirs(self):
+        """
+        returns inputpath, outputpath
+        """
+        to_dir = self.main.to_dir.toPlainText()
+        filename = self.data['filename']
+        outputpath = to_dir + '/' + filename + '.cbz'
+        outputpath = os.path.abspath(os.path.expanduser(outputpath))
+        return self.data['path'], outputpath
+
 
     def process_file(self):
         """
@@ -291,14 +376,15 @@ class PDFWidget(GOD):
         :return: bool
         """
         def error(self, text, stylesheet='background-color: red ; color: white'):
-            self.status_label.setText(text)
-            self.status_label.setStyleSheet(stylesheet)
+            self.data['work'] = False
+            self.data['error'] = dict(text=text, style=stylesheet)
 
         self.status_label.setText('PROCESSING')
         self.status_label.setStyleSheet('background-color: magenta ; color: white')
 
         to_dir = self.main.to_dir.toPlainText()
         filename = self.data['filename']
+        inputpath, outputpath = self.generate_dirs()
 
         if not to_dir:
             error(self, 'IMPOSSIBLE OUTPUT FOLDER')
@@ -318,9 +404,6 @@ class PDFWidget(GOD):
         if not os.path.exists(to_dir):
             error(self, 'ERROR CREATING FOLDER')
             return False
-
-        outputpath = to_dir + '/' + filename + '.cbz'
-        outputpath = os.path.abspath(os.path.expanduser(outputpath))
 
         data = sqlite.ro('select * from files where md5 = (?) and converted = (?)', (self.data['md5'], True,))
         if data and os.path.exists(outputpath) and os.path.getsize(outputpath) > 0:
@@ -349,7 +432,6 @@ class PDFWidget(GOD):
             return False
 
         rv = self.main.convert_pdf_to_images(inputpath=self.data['path'], outputpath=outputpath, widget=self)
-        self.data['work'] = False
 
         if rv['status']:
             self.set_pixmap(rv['tmp_webp_folder'])
@@ -378,6 +460,8 @@ class PDFWidget(GOD):
         elif not rv['status']:
             self.status_label.setText('HDD FULL')
             self.status_label.setStyleSheet('background-color: red ; color: black')
+
+        self.data['work'] = False
 
     def load_next_job(self):
         """

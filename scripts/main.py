@@ -43,7 +43,7 @@ def pdf_to_jpeg(job):
     )
 
     return image_list
-def convert_files_to_jpeg(joblist, inputpath, tmp_jpeg_folder, poppler_path=None, show_status=None):
+def convert_files_to_jpeg(joblist, inputpath, tmp_jpeg_folder, poppler_path=None):
     """
     if tmp_folder goes below 100mb False is returned
     :param joblist: dictionary with letters as keys containing list indexes (int)
@@ -53,31 +53,8 @@ def convert_files_to_jpeg(joblist, inputpath, tmp_jpeg_folder, poppler_path=None
     """
     image_list = []
     threadlist = []
-    pagecount = -1
     for letter in joblist:
         threadlist.append((inputpath, tmp_jpeg_folder, joblist[letter][0], joblist[letter][-1], letter, poppler_path,))
-
-        if show_status and joblist[letter][-1] > pagecount:
-            pagecount = joblist[letter][-1]
-
-    if show_status and pagecount > -1:
-        def draw_pdf_to_jpeg_status(check=0):
-            time.sleep(0.5)
-
-            if not os.path.exists(tmp_jpeg_folder):
-                return
-
-            for walk in os.walk(tmp_jpeg_folder):
-
-                if len(walk[2]) < check:
-                    return
-
-                show_status(current=len(walk[2]), total=pagecount)
-                if len(walk[2]) != pagecount:
-                    draw_pdf_to_jpeg_status(len(walk[2]))
-                break
-
-        t.start_thread(draw_pdf_to_jpeg_status, name='process_label_one', threads=1)
 
     with concurrent.futures.ProcessPoolExecutor() as executor:
         for _, rv in zip(joblist, executor.map(pdf_to_jpeg, threadlist)):
@@ -106,7 +83,7 @@ def jpeg_to_webp(job):
 
     image.save(destination_path, 'webp', method=6, quality=webp_quality)
     return dict(source=source_path, destination=destination_path)
-def convert_files_to_webp(joblist, show_status=None):
+def convert_files_to_webp(joblist):
     """
     :param joblist: list with jpeg_files
     :return:
@@ -117,9 +94,6 @@ def convert_files_to_webp(joblist, show_status=None):
             count += 1
             if rv and os.path.getsize(rv['destination']) > 0:
                 os.remove(rv['source'])
-
-            if show_status:
-                show_status(current=count, total=len(joblist))
 
 def recompress_fucntion(destination_file, tmp_folder):
     """
@@ -387,7 +361,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             rv = self.decide_pages_per_cpu(inputpath)
             if rv:
                 image_list = convert_files_to_jpeg(
-                    rv, inputpath, tmp_jpeg_folder, poppler_path, widget.change_process_label_one)
+                    rv, inputpath, tmp_jpeg_folder, poppler_path)
 
         if not image_list:
             image_list = pdf_to_jpeg((inputpath, tmp_jpeg_folder, None, None, None, poppler_path,))
@@ -409,9 +383,9 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         widget.status_label.setText('CONVERTING')
         if not self.wepb_threads.isChecked():
             for i in jobs:
-                convert_files_to_webp(i, widget.change_process_label_two)
+                convert_files_to_webp(i)
         else:
-            convert_files_to_webp(jobs, widget.change_process_label_two)
+            convert_files_to_webp(jobs)
 
         widget.status_label.setText('RECOMPRESSING')
         rv = recompress_fucntion(outputpath, tmp_folder)
@@ -536,6 +510,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             widget.data = self.pdf_files[path]
             widget.data['md5'] = md5
             widget.data['work'] = False
+            widget.data['error'] = False
             widget.post_init()
 
             rv = sqlite.ro('select * from files where md5 = (?)', md5)
@@ -566,7 +541,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
             if self.dev_mode:
                 return
 
-            t.start_thread(self.dummy, finished_function=self.draw_pdf_files)
+            t.start_thread(self.dummy, finished_function=self.draw_pdf_files, name='gui', priority=1)
             break
 
     def dummy(self, sleep=None):

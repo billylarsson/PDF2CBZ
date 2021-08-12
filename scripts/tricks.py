@@ -80,7 +80,8 @@ class ViktorinoxTechClass:
                      finished_function=None,
                      finished_arguments=None,
                      threads=1,
-                     name='threadpool'
+                     name='threadpool',
+                     priority=0
                      ):
 
         if worker_arguments:
@@ -110,7 +111,7 @@ class ViktorinoxTechClass:
                     thread.signals.finished.connect(partial(launcher))
 
         threadpool = tech.threadpool(name=name, threads=threads)
-        threadpool.start(thread)
+        threadpool.start(thread, priority=priority)
 
     @staticmethod
     def retrieve_setting(index):
