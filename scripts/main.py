@@ -383,7 +383,7 @@ class PDF2CBZmain(QtWidgets.QMainWindow):
         widget.status_label.setText('CONVERTING')
         if not self.wepb_threads.isChecked():
             for i in jobs:
-                convert_files_to_webp(i)
+                convert_files_to_webp([i])
         else:
             convert_files_to_webp(jobs)
 
